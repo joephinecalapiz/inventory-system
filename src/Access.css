@@ -1,0 +1,103 @@
+.access-page,
+.role-placeholder-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background: #f7f8fa;
+}
+
+.access-page-inside,
+.role-placeholder-page {
+  min-height: calc(100vh - 92px);
+}
+
+.access-card,
+.role-placeholder-card {
+  width: min(100%, 500px);
+  padding: 32px;
+  border: 1px solid #dce1e7;
+  border-radius: 12px;
+  background: #ffffff;
+  text-align: center;
+}
+
+.access-icon {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  margin: 0 auto 18px;
+  place-items: center;
+  border: 1px solid #e6a0a0;
+  border-radius: 50%;
+  background: #fff1f1;
+  color: #b42318;
+  font-size: 26px;
+  font-weight: 700;
+}
+
+.access-eyebrow {
+  margin: 0 0 8px;
+  color: #9a6800;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.access-card h1,
+.role-placeholder-card h1 {
+  margin: 0;
+  color: #101828;
+  font-size: 26px;
+  letter-spacing: -0.03em;
+}
+
+.access-message,
+.role-placeholder-card > p:not(.access-eyebrow) {
+  margin: 14px 0 0;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.access-detail {
+  display: block;
+  margin: 18px 0 0;
+  padding: 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid #dce1e7;
+  border-radius: 7px;
+  background: #f8fafc;
+  color: #344054;
+  font-size: 12px;
+}
+
+.access-primary-button {
+  min-height: 42px;
+  margin-top: 22px;
+  padding: 9px 18px;
+  border: 1px solid #b77c00;
+  border-radius: 7px;
+  background: #fbbf24;
+  color: #2d2100;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.role-placeholder-notice {
+  margin-top: 22px;
+  padding: 14px;
+  border: 1px dashed #cbd3dd;
+  border-radius: 8px;
+  background: #fafbfc;
+  color: #667085;
+  font-size: 13px;
+}
+
+@media (max-width: 850px) {
+  .access-page-inside,
+  .role-placeholder-page {
+    min-height: calc(100vh - 76px);
+  }
+}
