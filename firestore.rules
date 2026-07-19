@@ -1,0 +1,500 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /*
+     * Returns true when Firebase Authentication
+     * has identified a signed-in user.
+     */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    /*
+     * Returns true when the signed-in user has
+     * a matching Firestore profile.
+     */
+    function userProfileExists() {
+      return isSignedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
+    }
+
+    /*
+     * Returns the logged-in user's Firestore profile.
+     */
+    function currentUserProfile() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    /*
+     * Only ACTIVE accounts may use protected
+     * inventory collections.
+     */
+    function isActiveUser() {
+      return userProfileExists()
+        && currentUserProfile().status == "ACTIVE";
+    }
+
+    /*
+     * Checks whether the active user's role appears
+     * inside the supplied list of allowed roles.
+     */
+    function hasRole(allowedRoles) {
+      return isActiveUser()
+        && currentUserProfile().role in allowedRoles;
+    }
+    /*
+ * Checks whether the current account is a
+ * Super Administrator.
+ */
+function isSuperAdmin() {
+  return hasRole([
+    "SUPERADMIN"
+  ]);
+}
+
+/*
+ * Checks whether the current account is an
+ * Administrator.
+ */
+function isAdmin() {
+  return hasRole([
+    "ADMIN"
+  ]);
+}
+
+/*
+ * Valid roles that may be saved in a user profile.
+ */
+function isValidManagedRole(role) {
+  return role in [
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "CASHIER",
+    "AUDITOR"
+  ];
+}
+
+/*
+ * Valid account statuses.
+ */
+function isValidManagedStatus(status) {
+  return status in [
+    "ACTIVE",
+    "INACTIVE",
+    "SUSPENDED"
+  ];
+}
+
+/*
+ * Allows only access-related fields to change.
+ *
+ * Fields such as email and displayName cannot be
+ * changed through this operation.
+ */
+function onlyUserAccessFieldsChanged() {
+  return request.resource.data
+    .diff(resource.data)
+    .affectedKeys()
+    .hasOnly([
+      "role",
+      "status",
+      "updatedBy",
+      "updatedAt"
+    ]);
+}
+
+/*
+ * Administrators may manage operational accounts,
+ * but cannot manage or assign ADMIN or SUPERADMIN.
+ */
+function adminCanManageTargetUser() {
+  return resource.data.role in [
+      "INVENTORY_STAFF",
+      "CASHIER",
+      "AUDITOR"
+    ]
+    && request.resource.data.role in [
+      "INVENTORY_STAFF",
+      "CASHIER",
+      "AUDITOR"
+    ];
+}
+    
+    
+
+ match /users/{userId} {
+
+  /*
+   * Users may read their own profile.
+   * Superadmin and Admin may read other profiles.
+   */
+  allow get: if isSignedIn()
+    && (
+      request.auth.uid == userId
+      || hasRole([
+        "SUPERADMIN",
+        "ADMIN"
+      ])
+    );
+
+  /*
+   * Superadmin and Admin may list users for
+   * the User Management page.
+   */
+  allow list: if hasRole([
+    "SUPERADMIN",
+    "ADMIN"
+  ]);
+
+  /*
+   * Role and status updates.
+   */
+  allow update: if isActiveUser()
+
+    /*
+     * Administrators cannot change their own
+     * role or status.
+     */
+    && request.auth.uid != userId
+
+    /*
+     * Do not allow unrelated user-profile
+     * fields to be changed.
+     */
+    && onlyUserAccessFieldsChanged()
+
+    /*
+     * Validate the new values.
+     */
+    && isValidManagedRole(
+      request.resource.data.role
+    )
+
+    && isValidManagedStatus(
+      request.resource.data.status
+    )
+
+    /*
+     * Record who performed the change.
+     */
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    /*
+     * The timestamp must come from Firestore.
+     */
+    && request.resource.data.updatedAt
+      == request.time
+
+    /*
+     * Superadmin may manage other users.
+     *
+     * Admin may only manage operational roles.
+     */
+    && (
+      isSuperAdmin()
+      || (
+        isAdmin()
+        && adminCanManageTargetUser()
+      )
+    );
+
+  /*
+   * Account creation will be handled in
+   * Phase 1F-3.
+   *
+   * Account deletion remains disabled.
+   */
+  allow create, delete: if false;
+}
+     
+     
+     
+    match /products/{productId} {
+
+      allow read: if hasRole([
+        "SUPERADMIN",
+        "ADMIN",
+        "INVENTORY_STAFF",
+        "CASHIER",
+        "AUDITOR"
+      ]);
+
+      allow create, update: if hasRole([
+        "SUPERADMIN",
+        "ADMIN",
+        "INVENTORY_STAFF"
+      ]);
+
+      allow delete: if hasRole([
+        "SUPERADMIN",
+        "ADMIN"
+      ]);
+    }
+
+    /*
+     * BARCODE COUNTERS
+     */
+    match /barcodeCounters/{categoryCode} {
+
+      allow read, create, update: if hasRole([
+        "SUPERADMIN",
+        "ADMIN",
+        "INVENTORY_STAFF"
+      ]);
+
+      allow delete: if false;
+    }
+
+    /*
+     * STOCK MOVEMENT HISTORY
+     */
+    match /stockMovements/{movementId} {
+
+      allow read: if hasRole([
+        "SUPERADMIN",
+        "ADMIN",
+        "INVENTORY_STAFF",
+        "AUDITOR"
+      ]);
+
+      allow create: if hasRole([
+        "SUPERADMIN",
+        "ADMIN",
+        "INVENTORY_STAFF"
+      ]);
+
+      /*
+       * Stock history should remain permanent.
+       */
+      allow update, delete: if false;
+    }
+
+    /*
+ * CATEGORY MASTER DATA
+ */
+match /categories/{categoryId} {
+
+  /*
+   * These roles may view category records.
+   */
+  allow get, list: if hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+
+  /*
+   * Only Superadmin and Admin may create
+   * category records.
+   */
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+
+    && request.resource.data.keys().hasOnly([
+      "name",
+      "code",
+      "barcodePrefix",
+      "description",
+      "status",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "name",
+      "code",
+      "barcodePrefix",
+      "description",
+      "status",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.name is string
+    && request.resource.data.name.size() >= 2
+    && request.resource.data.name.size() <= 100
+
+    && request.resource.data.code is string
+    && request.resource.data.code == categoryId
+    && request.resource.data.code.size() >= 2
+    && request.resource.data.code.size() <= 50
+    && request.resource.data.code.matches(
+      "^[A-Z0-9_]+$"
+    )
+
+    && request.resource.data.barcodePrefix is string
+    && request.resource.data.barcodePrefix.matches(
+      "^[0-9]{2}$"
+    )
+
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 500
+
+    && request.resource.data.status in [
+      "ACTIVE",
+      "INACTIVE"
+    ]
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * Only editable fields may change.
+   *
+   * Category code and barcode prefix remain
+   * permanent after creation.
+   */
+  allow update: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "name",
+        "description",
+        "status",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.code
+      == resource.data.code
+
+    && request.resource.data.barcodePrefix
+      == resource.data.barcodePrefix
+
+    && request.resource.data.createdBy
+      == resource.data.createdBy
+
+    && request.resource.data.createdAt
+      == resource.data.createdAt
+
+    && request.resource.data.name is string
+    && request.resource.data.name.size() >= 2
+    && request.resource.data.name.size() <= 100
+
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 500
+
+    && request.resource.data.status in [
+      "ACTIVE",
+      "INACTIVE"
+    ]
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * Categories should be deactivated rather
+   * than permanently deleted.
+   */
+  allow delete: if false;
+}
+
+
+/*
+ * CATEGORY BARCODE PREFIX RESERVATIONS
+ */
+match /categoryBarcodePrefixes/{barcodePrefix} {
+
+  /*
+   * The category creation transaction checks
+   * whether the selected prefix already exists.
+   */
+  allow get: if hasRole([
+    "SUPERADMIN",
+    "ADMIN"
+  ]);
+
+  allow list: if false;
+
+  /*
+   * Reserve a prefix when its category is created.
+   */
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+
+    && request.resource.data.keys().hasOnly([
+      "barcodePrefix",
+      "categoryCode",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "barcodePrefix",
+      "categoryCode",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.barcodePrefix
+      == barcodePrefix
+
+    && request.resource.data.barcodePrefix is string
+
+    && request.resource.data.barcodePrefix.matches(
+      "^[0-9]{2}$"
+    )
+
+    && request.resource.data.categoryCode is string
+
+    && request.resource.data.categoryCode.matches(
+      "^[A-Z0-9_]+$"
+    )
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time;
+
+  /*
+   * Prefix reservations remain permanent so an
+   * existing barcode prefix cannot be reused.
+   */
+  allow update, delete: if false;
+}
+
+
+
+    /*
+     * DENY EVERY COLLECTION NOT EXPLICITLY LISTED ABOVE.
+     */
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

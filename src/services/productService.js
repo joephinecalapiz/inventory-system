@@ -12,21 +12,7 @@ import { db } from "../firebase/firebase";
 
 const productsCollection = collection(db, "products");
 
-const CATEGORY_CODES = {
-  "WATER METERS": "10",
-  VALVES: "11",
-  OTHERS: "12",
-  "PE FITTINGS": "13",
-  "GI FITTINGS": "14",
-  "OIL & LUBRICANTS": "15",
-  PARTS: "16",
-  CONSUMABLES: "17",
-  FLANGES: "18",
-  "WATER QUALITY EQUIPMENTS": "19",
-  "HDPE FITTINGS": "20",
-  "PUMPS & MOTOR": "21",
-  "FABRICATED FITTINGS": "22",
-};
+
 
 /**
  * Calculates the final check digit of a 12-digit UPC-A barcode.
@@ -114,19 +100,32 @@ export function subscribeToProducts(
 /**
  * Creates a product and generates its barcode.
  */
-export async function createProduct(productData) {
-  const categoryCode =
-    CATEGORY_CODES[productData.category];
+/**
+ * Creates a product and generates its barcode
+ * using the selected Firestore category.
+ */
+export async function createProduct(
+  productData,
+) {
+  const categoryCode = String(
+    productData?.categoryCode ?? "",
+  )
+    .trim()
+    .toUpperCase();
 
-  if (!categoryCode) {
+  if (
+    !/^[A-Z0-9_]{2,50}$/.test(
+      categoryCode,
+    )
+  ) {
     throw new Error(
-      `No barcode code was found for category: ${productData.category}`,
+      "A valid Firestore category code is required.",
     );
   }
 
-  const counterReference = doc(
+  const categoryReference = doc(
     db,
-    "barcodeCounters",
+    "categories",
     categoryCode,
   );
 
@@ -135,86 +134,238 @@ export async function createProduct(productData) {
   );
 
   let generatedBarcode = "";
+  let resolvedCategoryName = "";
+  let resolvedBarcodePrefix = "";
 
   try {
-    await runTransaction(db, async (transaction) => {
-      const counterSnapshot =
-        await transaction.get(counterReference);
+    await runTransaction(
+      db,
+      async (transaction) => {
+        /*
+         * Read the category first.
+         */
+        const categorySnapshot =
+          await transaction.get(
+            categoryReference,
+          );
 
-      const previousSequence = counterSnapshot.exists()
-        ? Number(
-            counterSnapshot.data().lastSequence ?? 0,
+        if (
+          !categorySnapshot.exists()
+        ) {
+          throw new Error(
+            "The selected category no longer exists.",
+          );
+        }
+
+        const category =
+          categorySnapshot.data();
+
+        if (
+          category.status !== "ACTIVE"
+        ) {
+          throw new Error(
+            `The category "${category.name}" is not active.`,
+          );
+        }
+
+        resolvedCategoryName =
+          String(
+            category.name ?? "",
+          ).trim();
+
+        resolvedBarcodePrefix =
+          String(
+            category.barcodePrefix ??
+              "",
+          ).trim();
+
+        if (
+          !resolvedCategoryName
+        ) {
+          throw new Error(
+            "The selected category does not have a valid name.",
+          );
+        }
+
+        if (
+          !/^\d{2}$/.test(
+            resolvedBarcodePrefix,
           )
-        : 0;
+        ) {
+          throw new Error(
+            "The selected category does not have a valid two-digit barcode prefix.",
+          );
+        }
 
-      const nextSequence = previousSequence + 1;
-
-      if (nextSequence > 999999999) {
-        throw new Error(
-          "The barcode sequence for this category is full.",
+        const counterReference = doc(
+          db,
+          "barcodeCounters",
+          resolvedBarcodePrefix,
         );
-      }
 
-      const sequenceText = String(nextSequence).padStart(
-        9,
-        "0",
-      );
+        /*
+         * All transaction reads happen before
+         * any writes.
+         */
+        const counterSnapshot =
+          await transaction.get(
+            counterReference,
+          );
 
-      const firstElevenDigits =
-        categoryCode + sequenceText;
+        const previousSequence =
+          counterSnapshot.exists()
+            ? Number(
+                counterSnapshot.data()
+                  .lastSequence ?? 0,
+              )
+            : 0;
 
-      const checkDigit =
-        calculateUpcCheckDigit(firstElevenDigits);
+        const nextSequence =
+          previousSequence + 1;
 
-      generatedBarcode =
-        firstElevenDigits + String(checkDigit);
+        if (
+          nextSequence > 999999999
+        ) {
+          throw new Error(
+            "The barcode sequence for this category is full.",
+          );
+        }
 
-      transaction.set(
-        counterReference,
-        {
-          category: productData.category,
-          lastSequence: nextSequence,
-          updatedAt: serverTimestamp(),
-        },
-        {
-          merge: true,
-        },
-      );
+        const sequenceText =
+          String(
+            nextSequence,
+          ).padStart(
+            9,
+            "0",
+          );
 
-      transaction.set(productReference, {
-        name: String(productData.name).trim(),
+        const firstElevenDigits =
+          resolvedBarcodePrefix +
+          sequenceText;
 
-        sku: String(productData.sku)
-          .trim()
-          .toUpperCase(),
+        const checkDigit =
+          calculateUpcCheckDigit(
+            firstElevenDigits,
+          );
 
-        category: String(productData.category).trim(),
+        generatedBarcode =
+          firstElevenDigits +
+          String(checkDigit);
 
-        price: Number(productData.price),
+        transaction.set(
+          counterReference,
+          {
+            category:
+              resolvedCategoryName,
 
-        quantity: Number(productData.quantity),
+            categoryCode,
 
-        reorderLevel: Number(
-          productData.reorderLevel,
-        ),
+            barcodePrefix:
+              resolvedBarcodePrefix,
 
-        barcode: generatedBarcode,
+            lastSequence:
+              nextSequence,
 
-        createdAt: serverTimestamp(),
+            updatedAt:
+              serverTimestamp(),
+          },
+          {
+            merge: true,
+          },
+        );
 
-        updatedAt: serverTimestamp(),
-      });
-    });
+        transaction.set(
+          productReference,
+          {
+            name:
+              String(
+                productData.name,
+              ).trim(),
 
-    console.log("Product successfully saved:", {
-      id: productReference.id,
-      name: productData.name,
-      barcode: generatedBarcode,
-    });
+            sku:
+              String(
+                productData.sku,
+              )
+                .trim()
+                .toUpperCase(),
+
+            /*
+             * Keep the legacy category field so
+             * Inventory and Dashboard continue
+             * working without changes.
+             */
+            category:
+              resolvedCategoryName,
+
+            categoryName:
+              resolvedCategoryName,
+
+            categoryCode,
+
+            categoryId:
+              categoryCode,
+
+            barcodePrefix:
+              resolvedBarcodePrefix,
+
+            price:
+              Number(
+                productData.price,
+              ),
+
+            quantity:
+              Number(
+                productData.quantity,
+              ),
+
+            reorderLevel:
+              Number(
+                productData.reorderLevel,
+              ),
+
+            barcode:
+              generatedBarcode,
+
+            createdAt:
+              serverTimestamp(),
+
+            updatedAt:
+              serverTimestamp(),
+          },
+        );
+      },
+    );
+
+    console.log(
+      "Product successfully saved:",
+      {
+        id:
+          productReference.id,
+
+        name:
+          productData.name,
+
+        category:
+          resolvedCategoryName,
+
+        categoryCode,
+
+        barcode:
+          generatedBarcode,
+      },
+    );
 
     return {
-      id: productReference.id,
-      barcode: generatedBarcode,
+      id:
+        productReference.id,
+
+      barcode:
+        generatedBarcode,
+
+      category:
+        resolvedCategoryName,
+
+      categoryCode,
     };
   } catch (error) {
     console.error(
@@ -222,7 +373,6 @@ export async function createProduct(productData) {
       error,
     );
 
-    // Send the error back to AddProduct.jsx.
     throw error;
   }
 }

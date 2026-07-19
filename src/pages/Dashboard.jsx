@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import "../Dashboard.css";
+import "../styles/Dashboard.css";
 import { subscribeToProducts } from "../services/productService";
 import { subscribeToSalesMovements } from "../services/dashboardService";
 

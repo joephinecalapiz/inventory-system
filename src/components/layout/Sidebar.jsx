@@ -8,8 +8,8 @@ import {
   AddProductIcon,
   CashierIcon,
   CloseIcon,
+  CategoryIcon,
   DashboardIcon,
-  HelpIcon,
   InventoryIcon,
   LogoutIcon,
   ReportsIcon,
@@ -29,6 +29,17 @@ const NAVIGATION_ITEMS = [
     label: "Inventory",
     path: "/inventory",
     icon: InventoryIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+  {
+    label: "Categories",
+    path: "/categories",
+    icon: CategoryIcon,
     allowedRoles: [
       USER_ROLES.SUPERADMIN,
       USER_ROLES.ADMIN,

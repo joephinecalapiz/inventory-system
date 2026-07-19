@@ -1,4 +1,4 @@
-import "../Access.css";
+import "../styles/Access.css";
 
 function AccountStatus({ eyebrow, title, message, detail, onSignOut }) {
   return (

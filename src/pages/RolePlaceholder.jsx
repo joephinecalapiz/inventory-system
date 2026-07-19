@@ -1,4 +1,4 @@
-import "../Access.css";
+import "../styles/Access.css";
 
 function RolePlaceholder({ eyebrow, title, description }) {
   return (

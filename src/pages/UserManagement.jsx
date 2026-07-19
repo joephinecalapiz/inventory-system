@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import "../UserManagement.css";
-
+import "../styles/UserManagement.css";
 import { ROLE_LABELS, USER_ROLES, USER_STATUSES } from "../constants/roles";
 
 import { isCreateUserFunctionEnabled } from "../firebase/firebase";

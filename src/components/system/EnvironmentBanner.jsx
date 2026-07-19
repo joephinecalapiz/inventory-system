@@ -2,8 +2,7 @@ import {
   isUsingFirebaseEmulators,
 } from "../../firebase/firebase";
 
-import "./EnvironmentBanner.css";
-
+import "../../styles/EnvironmentBanner.css";
 function EnvironmentBanner() {
   if (!isUsingFirebaseEmulators) {
     return null;

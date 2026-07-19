@@ -1,7 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 
-import "../Access.css";
-
+import "../styles/Access.css";
 import { getRoleHomeRoute, ROLE_LABELS } from "../constants/roles";
 
 function Unauthorized({ role }) {

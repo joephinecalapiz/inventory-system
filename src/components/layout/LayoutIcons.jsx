@@ -20,6 +20,20 @@ export function InventoryIcon() {
   );
 }
 
+export function CategoryIcon() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+    >
+      <path d="M4 5h6v6H4V5Z" />
+      <path d="M14 5h6v6h-6V5Z" />
+      <path d="M4 15h6v4H4v-4Z" />
+      <path d="M14 15h6v4h-6v-4Z" />
+    </svg>
+  );
+}
+
 export function AddProductIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">

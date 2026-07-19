@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import "../Auth.css";
+import "../styles/Auth.css";
 import FloatingOrb from "../components/auth/FloatingOrb";
 import LoginTopbar from "../components/auth/LoginTopbar";
 import { loginAdmin } from "../services/authService";
