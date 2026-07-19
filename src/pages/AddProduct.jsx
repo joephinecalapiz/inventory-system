@@ -10,7 +10,7 @@ import { subscribeToActiveCategories } from "../services/categoryService";
 
 import { subscribeToActiveUnits } from "../services/unitService";
 
-import { createProduct } from "../services/productService";
+import { createProduct, subscribeToProducts } from "../services/productService";
 
 const EMPTY_FORM = {
   selectedProductId: "",
@@ -32,6 +32,13 @@ function AddProduct({ currentUserRole }) {
   const [activeCategories, setActiveCategories] = useState([]);
 
   const [activeUnits, setActiveUnits] = useState([]);
+
+  const [products, setProducts] = useState([]);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+
+  const [productSearchTerm, setProductSearchTerm] = useState("");
+
+  const [productLoadError, setProductLoadError] = useState("");
 
   const [isLoadingCategories, setIsLoadingCategories] = useState(true);
 
@@ -121,14 +128,139 @@ function AddProduct({ currentUserRole }) {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    const unsubscribe = subscribeToProducts(
+      (firebaseProducts) => {
+        setProducts(firebaseProducts);
+
+        setIsLoadingProducts(false);
+        setProductLoadError("");
+
+        /*
+         * If another user adds the currently
+         * selected master product, clear the
+         * selection immediately.
+         */
+        const usedSourceIds = new Set(
+          firebaseProducts
+            .map((product) => String(product.sourceProductId ?? "").trim())
+            .filter(Boolean),
+        );
+
+        setForm((currentForm) => {
+          if (
+            !currentForm.selectedProductId ||
+            !usedSourceIds.has(currentForm.selectedProductId)
+          ) {
+            return currentForm;
+          }
+
+          return {
+            ...EMPTY_FORM,
+
+            /*
+             * Preserve the selected unit because
+             * it may still be used for another
+             * product.
+             */
+            unitCode: currentForm.unitCode,
+          };
+        });
+      },
+
+      (error) => {
+        console.error("Unable to load existing products:", error);
+
+        setProductLoadError(
+          error?.message ||
+            "Unable to check which products have already been added.",
+        );
+
+        setIsLoadingProducts(false);
+      },
+    );
+
+    return unsubscribe;
+  }, []);
+
   const activeCategoryNames = useMemo(() => {
     return new Set(activeCategories.map((category) => category.name));
   }, [activeCategories]);
 
-  const availableProductOptions = useMemo(() => {
-    return PRODUCT_OPTIONS.filter((product) =>
-      activeCategoryNames.has(product.category),
+  const usedSourceProductIds = useMemo(() => {
+    return new Set(
+      products
+        .map((product) => String(product.sourceProductId ?? "").trim())
+        .filter(Boolean),
     );
+  }, [products]);
+
+  const availableProductOptions = useMemo(() => {
+    return PRODUCT_OPTIONS.filter(
+      (product) =>
+        activeCategoryNames.has(product.category) &&
+        !usedSourceProductIds.has(product.id),
+    ).sort((firstProduct, secondProduct) => {
+      const categoryComparison = firstProduct.category.localeCompare(
+        secondProduct.category,
+      );
+
+      if (categoryComparison !== 0) {
+        return categoryComparison;
+      }
+
+      return firstProduct.name.localeCompare(secondProduct.name);
+    });
+  }, [activeCategoryNames, usedSourceProductIds]);
+
+  const searchedProductOptions = useMemo(() => {
+    const normalizedSearch = productSearchTerm.trim().toLowerCase();
+
+    if (!normalizedSearch) {
+      return availableProductOptions;
+    }
+
+    return availableProductOptions.filter((product) => {
+      const searchableText = [
+        product.name,
+        product.sku,
+        product.category,
+        product.id,
+      ]
+        .map((value) => String(value ?? "").toLowerCase())
+        .join(" ");
+
+      return searchableText.includes(normalizedSearch);
+    });
+  }, [availableProductOptions, productSearchTerm]);
+
+  const groupedProductOptions = useMemo(() => {
+    const productGroups = new Map();
+
+    for (const product of searchedProductOptions) {
+      if (!productGroups.has(product.category)) {
+        productGroups.set(product.category, []);
+      }
+
+      productGroups.get(product.category).push(product);
+    }
+
+    return [...productGroups.entries()].map(([category, categoryProducts]) => ({
+      category,
+      products: categoryProducts,
+    }));
+  }, [searchedProductOptions]);
+
+  const alreadyAddedCount = useMemo(() => {
+    return PRODUCT_OPTIONS.filter((product) =>
+      usedSourceProductIds.has(product.id),
+    ).length;
+  }, [usedSourceProductIds]);
+
+  const inactiveCategoryProductCount = useMemo(() => {
+    return PRODUCT_OPTIONS.filter(
+      (product) => !activeCategoryNames.has(product.category),
+    ).length;
   }, [activeCategoryNames]);
 
   function clearMessage() {
@@ -156,6 +288,8 @@ function AddProduct({ currentUserRole }) {
       clearMessage();
       return;
     }
+
+    setProductSearchTerm("");
 
     const selectedCategory = activeCategories.find(
       (category) => category.name === selectedProduct.category,
@@ -225,6 +359,18 @@ function AddProduct({ currentUserRole }) {
   function validateForm() {
     if (!form.selectedProductId) {
       return "Please select a product.";
+    }
+
+    if (usedSourceProductIds.has(form.selectedProductId)) {
+      return "This product master record has already been added.";
+    }
+
+    const selectedProductStillAvailable = availableProductOptions.some(
+      (product) => product.id === form.selectedProductId,
+    );
+
+    if (!selectedProductStillAvailable) {
+      return "The selected product is no longer available. It may already have been added or its category may be inactive.";
     }
 
     if (!form.categoryCode) {
@@ -377,10 +523,13 @@ function AddProduct({ currentUserRole }) {
     );
   }
 
-  const isLoadingMasterData = isLoadingCategories || isLoadingUnits;
+  const isLoadingMasterData =
+    isLoadingCategories || isLoadingUnits || isLoadingProducts;
 
   const hasMasterDataError =
-    Boolean(categoryLoadError) || Boolean(unitLoadError);
+    Boolean(categoryLoadError) ||
+    Boolean(unitLoadError) ||
+    Boolean(productLoadError);
 
   return (
     <main className="add-product-page">
@@ -404,6 +553,26 @@ function AddProduct({ currentUserRole }) {
           <h3>Product Information</h3>
         </div>
 
+        <div className="add-product-availability">
+          <article>
+            <span>Available</span>
+
+            <strong>{availableProductOptions.length}</strong>
+          </article>
+
+          <article>
+            <span>Already added</span>
+
+            <strong>{alreadyAddedCount}</strong>
+          </article>
+
+          <article>
+            <span>Hidden by inactive category</span>
+
+            <strong>{inactiveCategoryProductCount}</strong>
+          </article>
+        </div>
+
         {categoryLoadError && (
           <div
             className="add-product-message add-product-message-error"
@@ -422,6 +591,15 @@ function AddProduct({ currentUserRole }) {
           </div>
         )}
 
+        {productLoadError && (
+          <div
+            className="add-product-message add-product-message-error"
+            role="alert"
+          >
+            {productLoadError}
+          </div>
+        )}
+
         {message.text && (
           <div
             className={`add-product-message add-product-message-${message.type}`}
@@ -431,35 +609,83 @@ function AddProduct({ currentUserRole }) {
           </div>
         )}
 
-        <form className="add-product-form" onSubmit={handleSubmit}>
-          <label>
-            Product name
-            <select
-              name="selectedProductId"
-              value={form.selectedProductId}
-              onChange={handleProductChange}
-              disabled={
-                isSubmitting ||
-                isLoadingCategories ||
-                Boolean(categoryLoadError)
-              }
-              required
-            >
-              <option value="">
-                {isLoadingCategories
-                  ? "Loading active categories..."
-                  : availableProductOptions.length === 0
-                    ? "No available products"
-                    : "Select a product"}
-              </option>
+        {!isLoadingMasterData &&
+          !hasMasterDataError &&
+          availableProductOptions.length === 0 && (
+            <div className="add-product-complete-notice">
+              <strong>All available products have been added</strong>
 
-              {availableProductOptions.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
+              <span>
+                There are currently no unused product-master records belonging
+                to active categories.
+              </span>
+            </div>
+          )}
+        <form className="add-product-form" onSubmit={handleSubmit}>
+          <div className="add-product-searchable-select">
+            <label>
+              Search product
+              <input
+                type="search"
+                value={productSearchTerm}
+                onChange={(event) => setProductSearchTerm(event.target.value)}
+                placeholder="Search by product name, SKU, category, or source ID"
+                disabled={
+                  isSubmitting ||
+                  isLoadingCategories ||
+                  isLoadingProducts ||
+                  Boolean(categoryLoadError) ||
+                  Boolean(productLoadError)
+                }
+              />
+              <small className="add-product-field-note">
+                Type a product name, SKU, category, or source product ID.
+              </small>
+            </label>
+
+            <label>
+              Product name
+              <select
+                name="selectedProductId"
+                value={form.selectedProductId}
+                onChange={handleProductChange}
+                disabled={
+                  isSubmitting ||
+                  isLoadingCategories ||
+                  isLoadingProducts ||
+                  Boolean(categoryLoadError) ||
+                  Boolean(productLoadError)
+                }
+                required
+              >
+                <option value="">
+                  {isLoadingCategories || isLoadingProducts
+                    ? "Checking available products..."
+                    : availableProductOptions.length === 0
+                      ? "All available products have been added"
+                      : searchedProductOptions.length === 0
+                        ? "No matching products found"
+                        : `Select a product — ${searchedProductOptions.length} result(s)`}
                 </option>
-              ))}
-            </select>
-          </label>
+
+                {groupedProductOptions.map((productGroup) => (
+                  <optgroup
+                    key={productGroup.category}
+                    label={`${productGroup.category} — ${productGroup.products.length}`}
+                  >
+                    {productGroup.products.map((product) => (
+                      <option key={product.id} value={product.id}>
+                        {product.name} — {product.sku}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+              <small className="add-product-field-note">
+                Only unused products from active categories are shown.
+              </small>
+            </label>
+          </div>
 
           <label>
             SKU
@@ -469,6 +695,19 @@ function AddProduct({ currentUserRole }) {
               placeholder="Automatically selected"
               readOnly
             />
+          </label>
+
+          <label>
+            Source product ID
+            <input
+              type="text"
+              value={form.selectedProductId}
+              placeholder="Automatically selected"
+              readOnly
+            />
+            <small className="add-product-field-note">
+              This uniquely identifies the exact product-master record.
+            </small>
           </label>
 
           <label>
@@ -593,6 +832,8 @@ function AddProduct({ currentUserRole }) {
                 setForm({
                   ...EMPTY_FORM,
                 });
+
+                setProductSearchTerm("");
 
                 setMessage({
                   type: "",

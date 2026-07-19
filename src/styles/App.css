@@ -678,3 +678,75 @@ tbody tr:hover {
   font-size: 13px;
   line-height: 1.6;
 }
+
+.add-product-availability {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+  margin-bottom: 16px;
+}
+
+.add-product-availability article {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #dce1e7;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.add-product-availability span {
+  display: block;
+  margin-bottom: 5px;
+  color: #667085;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.add-product-availability strong {
+  color: #172033;
+  font-size: 19px;
+}
+
+.add-product-field-note {
+  color: #7b8492;
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.add-product-complete-notice {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #86cda0;
+  border-radius: 8px;
+  background: #effaf3;
+}
+
+.add-product-complete-notice strong {
+  color: #18753a;
+  font-size: 12px;
+}
+
+.add-product-complete-notice span {
+  color: #3f6e4f;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+@media (max-width: 650px) {
+  .add-product-availability {
+    grid-template-columns: 1fr;
+  }
+}
+
+.add-product-searchable-select {
+  display: grid;
+  gap: 14px;
+}
+
+.add-product-searchable-select input[type="search"] {
+  padding-right: 36px;
+}

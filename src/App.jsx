@@ -12,6 +12,8 @@ import Categories from "./pages/Categories";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
 import Login from "./pages/Login";
+import Products from "./pages/Products";
+
 import RolePlaceholder from "./pages/RolePlaceholder";
 import Unauthorized from "./pages/Unauthorized";
 import Units from "./pages/Units";
@@ -205,6 +207,23 @@ function App() {
               ]}
             >
               <Inventory currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/products"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <Products currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

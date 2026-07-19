@@ -1,9 +1,12 @@
 import {
   collection,
   doc,
+  getDoc,
+  getDocs,
   onSnapshot,
   runTransaction,
   serverTimestamp,
+  writeBatch,
 } from "firebase/firestore";
 
 import { auth, db } from "../firebase/firebase";
@@ -21,226 +24,270 @@ import {
   normalizeSourceProductId,
 } from "../constants/products";
 
-const productsCollection = collection(
-  db,
-  "products",
-);
+const productsCollection = collection(db, "products");
+
+const PRODUCT_MIGRATION_BATCH_SIZE = 400;
+
+const PRODUCT_MIGRATION_ROLES = new Set(["SUPERADMIN", "ADMIN"]);
+
+function hasOwnField(record, fieldName) {
+  return Object.prototype.hasOwnProperty.call(record, fieldName);
+}
+
+/**
+ * Confirms that the currently authenticated user
+ * is an active Superadmin or Admin.
+ */
+async function getCurrentMigrationAdmin() {
+  const currentUserId = getCurrentUserId();
+
+  const userReference = doc(db, "users", currentUserId);
+
+  const userSnapshot = await getDoc(userReference);
+
+  if (!userSnapshot.exists()) {
+    throw new Error("Your Firestore user profile was not found.");
+  }
+
+  const userProfile = userSnapshot.data();
+
+  if (userProfile.status !== "ACTIVE") {
+    throw new Error("Only active accounts can migrate product records.");
+  }
+
+  if (!PRODUCT_MIGRATION_ROLES.has(userProfile.role)) {
+    throw new Error("Only a Superadmin or Admin can migrate legacy products.");
+  }
+
+  return {
+    currentUserId,
+    role: userProfile.role,
+  };
+}
+
+/**
+ * Inspects one product without changing it.
+ *
+ * Source identity is intentionally excluded because
+ * it must be assigned manually.
+ */
+export function inspectProductSafeMigration(product) {
+  const issues = [];
+  const blockers = [];
+
+  if (!product?.id) {
+    blockers.push("The product does not have a valid Firestore document ID.");
+  }
+
+  if (!hasOwnField(product, "status")) {
+    issues.push("Missing product status.");
+  } else if (!isValidProductStatus(product.status)) {
+    blockers.push("The existing product status is invalid.");
+  }
+
+  if (!hasOwnField(product, "description")) {
+    issues.push("Missing product description field.");
+  } else if (typeof product.description !== "string") {
+    blockers.push("The existing description is not text.");
+  } else if (
+    product.description.length > PRODUCT_LIMITS.DESCRIPTION_MAX_LENGTH
+  ) {
+    blockers.push("The existing description exceeds 500 characters.");
+  }
+
+  if (!hasOwnField(product, "costPrice")) {
+    issues.push("Missing cost price field.");
+  } else if (
+    product.costPrice !== null &&
+    !isValidMoneyValue(product.costPrice)
+  ) {
+    blockers.push("The existing cost price is invalid.");
+  }
+
+  const hasValidSellingPrice = isValidMoneyValue(product.sellingPrice);
+
+  const hasValidLegacyPrice = isValidMoneyValue(product.price);
+
+  if (!hasValidSellingPrice) {
+    if (hasValidLegacyPrice) {
+      issues.push("Selling price must be copied from the legacy price.");
+    } else {
+      blockers.push("No valid selling price or legacy price is available.");
+    }
+  }
+
+  const resolvedSellingPrice = hasValidSellingPrice
+    ? product.sellingPrice
+    : hasValidLegacyPrice
+      ? product.price
+      : null;
+
+  if (
+    resolvedSellingPrice !== null &&
+    (!hasValidLegacyPrice || product.price !== resolvedSellingPrice)
+  ) {
+    issues.push(
+      "The legacy price field must be synchronized with the selling price.",
+    );
+  }
+
+  if (typeof product.hasStockHistory !== "boolean") {
+    issues.push("Missing reliable stock-history flag.");
+  }
+
+  if (
+    !Number.isInteger(product.stockMovementCount) ||
+    product.stockMovementCount < 0
+  ) {
+    issues.push("Missing reliable stock-movement count.");
+  }
+
+  if (!String(product.updatedBy ?? "").trim()) {
+    issues.push("Missing updated-by audit field.");
+  }
+
+  if (!product.updatedAt) {
+    issues.push("Missing updated-at audit field.");
+  }
+
+  return {
+    needsMigration: issues.length > 0,
+
+    canMigrate: blockers.length === 0,
+
+    issues,
+    blockers,
+  };
+}
 
 /**
  * Returns the currently signed-in Firebase user ID.
  */
 function getCurrentUserId() {
-  const currentUserId =
-    auth.currentUser?.uid;
+  const currentUserId = auth.currentUser?.uid;
 
   if (!currentUserId) {
-    throw new Error(
-      "You must be signed in to manage products.",
-    );
+    throw new Error("You must be signed in to manage products.");
   }
 
   return currentUserId;
 }
 
 function prepareProductName(value) {
-  const name =
-    normalizeProductName(value);
+  const name = normalizeProductName(value);
 
-  if (
-    name.length <
-    PRODUCT_LIMITS.NAME_MIN_LENGTH
-  ) {
-    throw new Error(
-      "The product name must contain at least 2 characters.",
-    );
+  if (name.length < PRODUCT_LIMITS.NAME_MIN_LENGTH) {
+    throw new Error("The product name must contain at least 2 characters.");
   }
 
-  if (
-    name.length >
-    PRODUCT_LIMITS.NAME_MAX_LENGTH
-  ) {
-    throw new Error(
-      "The product name cannot exceed 150 characters.",
-    );
+  if (name.length > PRODUCT_LIMITS.NAME_MAX_LENGTH) {
+    throw new Error("The product name cannot exceed 150 characters.");
   }
 
   return name;
 }
 
 function prepareProductSku(value) {
-  const sku =
-    normalizeProductSku(value);
+  const sku = normalizeProductSku(value);
 
   if (!isValidProductSku(sku)) {
-    throw new Error(
-      "The SKU must contain 2 to 50 supported characters.",
-    );
+    throw new Error("The SKU must contain 2 to 50 supported characters.");
   }
 
   return sku;
 }
 
 function prepareDescription(value) {
-  const description = String(
-    value ?? "",
-  ).trim();
+  const description = String(value ?? "").trim();
 
-  if (
-    description.length >
-    PRODUCT_LIMITS.DESCRIPTION_MAX_LENGTH
-  ) {
-    throw new Error(
-      "The product description cannot exceed 500 characters.",
-    );
+  if (description.length > PRODUCT_LIMITS.DESCRIPTION_MAX_LENGTH) {
+    throw new Error("The product description cannot exceed 500 characters.");
   }
 
   return description;
 }
 
-function prepareMoneyValue(
-  value,
-  fieldLabel,
-) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
-    throw new Error(
-      `${fieldLabel} is required.`,
-    );
+function prepareMoneyValue(value, fieldLabel) {
+  if (value === undefined || value === null || value === "") {
+    throw new Error(`${fieldLabel} is required.`);
   }
 
   const amount = Number(value);
 
   if (!isValidMoneyValue(amount)) {
-    throw new Error(
-      `${fieldLabel} must be a valid non-negative amount.`,
-    );
+    throw new Error(`${fieldLabel} must be a valid non-negative amount.`);
   }
 
   return amount;
 }
 
 function prepareOptionalCostPrice(value) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
+  if (value === undefined || value === null || value === "") {
     return null;
   }
 
-  return prepareMoneyValue(
-    value,
-    "Cost price",
-  );
+  return prepareMoneyValue(value, "Cost price");
 }
 
-function prepareWholeNumber(
-  value,
-  fieldLabel,
-) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
-    throw new Error(
-      `${fieldLabel} is required.`,
-    );
+function prepareWholeNumber(value, fieldLabel) {
+  if (value === undefined || value === null || value === "") {
+    throw new Error(`${fieldLabel} is required.`);
   }
 
   const amount = Number(value);
 
   if (!isValidWholeNumber(amount)) {
-    throw new Error(
-      `${fieldLabel} must be a non-negative whole number.`,
-    );
+    throw new Error(`${fieldLabel} must be a non-negative whole number.`);
   }
 
   return amount;
 }
 
 function prepareProductStatus(value) {
-  const status = String(
-    value ??
-      PRODUCT_STATUSES.ACTIVE,
-  )
+  const status = String(value ?? PRODUCT_STATUSES.ACTIVE)
     .trim()
     .toUpperCase();
 
   if (!isValidProductStatus(status)) {
-    throw new Error(
-      "The product status must be ACTIVE or INACTIVE.",
-    );
+    throw new Error("The product status must be ACTIVE or INACTIVE.");
   }
 
   return status;
 }
 
-function prepareOptionalSourceProductId(
-  value,
-) {
-  if (
-    value === undefined ||
-    value === null ||
-    value === ""
-  ) {
+function prepareOptionalSourceProductId(value) {
+  if (value === undefined || value === null || value === "") {
     return "";
   }
 
-  const sourceProductId =
-    normalizeSourceProductId(value);
+  const sourceProductId = normalizeSourceProductId(value);
 
-  if (
-    !isValidSourceProductId(
-      sourceProductId,
-    )
-  ) {
-    throw new Error(
-      "The product master source ID is invalid.",
-    );
+  if (!isValidSourceProductId(sourceProductId)) {
+    throw new Error("The product master source ID is invalid.");
   }
 
   return sourceProductId;
 }
 
 function prepareCategoryCode(value) {
-  const categoryCode = String(
-    value ?? "",
-  )
+  const categoryCode = String(value ?? "")
     .trim()
     .toUpperCase();
 
-  if (
-    !/^[A-Z0-9_]{2,50}$/.test(
-      categoryCode,
-    )
-  ) {
-    throw new Error(
-      "A valid Firestore category code is required.",
-    );
+  if (!/^[A-Z0-9_]{2,50}$/.test(categoryCode)) {
+    throw new Error("A valid Firestore category code is required.");
   }
 
   return categoryCode;
 }
 
 function prepareUnitCode(value) {
-  const unitCode = String(
-    value ?? "",
-  )
+  const unitCode = String(value ?? "")
     .trim()
     .toUpperCase();
 
-  if (
-    !/^[A-Z0-9_]{1,50}$/.test(
-      unitCode,
-    )
-  ) {
-    throw new Error(
-      "A valid unit of measurement is required.",
-    );
+  if (!/^[A-Z0-9_]{1,50}$/.test(unitCode)) {
+    throw new Error("A valid unit of measurement is required.");
   }
 
   return unitCode;
@@ -250,118 +297,63 @@ function prepareUnitCode(value) {
  * Calculates the final check digit of a
  * 12-digit UPC-A barcode.
  */
-function calculateUpcCheckDigit(
-  firstElevenDigits,
-) {
-  if (
-    !/^\d{11}$/.test(
-      firstElevenDigits,
-    )
-  ) {
-    throw new Error(
-      "The barcode base must contain exactly 11 digits.",
-    );
+function calculateUpcCheckDigit(firstElevenDigits) {
+  if (!/^\d{11}$/.test(firstElevenDigits)) {
+    throw new Error("The barcode base must contain exactly 11 digits.");
   }
 
-  const digits =
-    firstElevenDigits
-      .split("")
-      .map(Number);
+  const digits = firstElevenDigits.split("").map(Number);
 
   const oddPositionTotal =
-    (
-      digits[0] +
-      digits[2] +
-      digits[4] +
-      digits[6] +
-      digits[8] +
-      digits[10]
-    ) * 3;
+    (digits[0] + digits[2] + digits[4] + digits[6] + digits[8] + digits[10]) *
+    3;
 
   const evenPositionTotal =
-    digits[1] +
-    digits[3] +
-    digits[5] +
-    digits[7] +
-    digits[9];
+    digits[1] + digits[3] + digits[5] + digits[7] + digits[9];
 
-  return (
-    10 -
-    ((oddPositionTotal +
-      evenPositionTotal) %
-      10)
-  ) % 10;
+  return (10 - ((oddPositionTotal + evenPositionTotal) % 10)) % 10;
 }
 
 /**
  * Loads all products and listens for changes.
  */
-export function subscribeToProducts(
-  onProductsChanged,
-  onError,
-) {
+export function subscribeToProducts(onProductsChanged, onError) {
   return onSnapshot(
     productsCollection,
 
     (snapshot) => {
-      const products =
-        snapshot.docs.map(
-          (productDocument) => ({
-            id:
-              productDocument.id,
+      const products = snapshot.docs.map((productDocument) => ({
+        id: productDocument.id,
 
-            ...productDocument.data(),
-          }),
-        );
+        ...productDocument.data(),
+      }));
 
-      products.sort(
-        (
-          firstProduct,
-          secondProduct,
-        ) => {
-          const firstCreatedAt =
-            firstProduct.createdAt
-              ?.toMillis?.() ?? 0;
+      products.sort((firstProduct, secondProduct) => {
+        const firstCreatedAt = firstProduct.createdAt?.toMillis?.() ?? 0;
 
-          const secondCreatedAt =
-            secondProduct.createdAt
-              ?.toMillis?.() ?? 0;
+        const secondCreatedAt = secondProduct.createdAt?.toMillis?.() ?? 0;
 
-          return (
-            secondCreatedAt -
-            firstCreatedAt
-          );
-        },
-      );
+        return secondCreatedAt - firstCreatedAt;
+      });
 
       onProductsChanged(products);
     },
 
     (error) => {
-      console.error(
-        "Unable to load Firestore products:",
-        error,
-      );
+      console.error("Unable to load Firestore products:", error);
 
       onError?.(error);
     },
   );
 }
 
-
-export function subscribeToActiveProducts(
-  onProductsChanged,
-  onError,
-) {
+export function subscribeToActiveProducts(onProductsChanged, onError) {
   return subscribeToProducts(
     (products) => {
       onProductsChanged(
         products.filter(
           (product) =>
-            (
-              product.status ??
-              PRODUCT_STATUSES.ACTIVE
-            ) ===
+            (product.status ?? PRODUCT_STATUSES.ACTIVE) ===
             PRODUCT_STATUSES.ACTIVE,
         ),
       );
@@ -372,98 +364,205 @@ export function subscribeToActiveProducts(
 }
 
 /**
+ * Safely migrates legacy product fields.
+ *
+ * It does not automatically assign sourceProductId.
+ * Stock-history fields are calculated from the
+ * permanent stockMovements collection.
+ */
+export async function migrateLegacyProductSafeFields(products) {
+  if (!Array.isArray(products)) {
+    throw new Error("A product list is required for migration.");
+  }
+
+  const { currentUserId } = await getCurrentMigrationAdmin();
+
+  const migrationCandidates = products
+    .map((product) => ({
+      product,
+      inspection: inspectProductSafeMigration(product),
+    }))
+    .filter(({ inspection }) => inspection.needsMigration);
+
+  if (migrationCandidates.length === 0) {
+    return {
+      requested: 0,
+      migrated: 0,
+      skipped: 0,
+      errors: [],
+    };
+  }
+
+  /*
+   * Read stock movement history once and calculate
+   * the real number of movements for each product.
+   */
+  const movementSnapshot = await getDocs(collection(db, "stockMovements"));
+
+  const movementCounts = new Map();
+
+  for (const movementDocument of movementSnapshot.docs) {
+    const movement = movementDocument.data();
+
+    const productId = String(movement.productId ?? "").trim();
+
+    if (!productId) {
+      continue;
+    }
+
+    movementCounts.set(productId, (movementCounts.get(productId) ?? 0) + 1);
+  }
+
+  const preparedUpdates = [];
+  const errors = [];
+
+  for (const { product, inspection } of migrationCandidates) {
+    if (!inspection.canMigrate) {
+      errors.push({
+        productId: product.id,
+
+        productName: product.name || product.id,
+
+        reasons: inspection.blockers,
+      });
+
+      continue;
+    }
+
+    const sellingPrice = isValidMoneyValue(product.sellingPrice)
+      ? product.sellingPrice
+      : product.price;
+
+    const status = hasOwnField(product, "status")
+      ? product.status
+      : PRODUCT_STATUSES.ACTIVE;
+
+    const description =
+      typeof product.description === "string" ? product.description.trim() : "";
+
+    const costPrice = hasOwnField(product, "costPrice")
+      ? product.costPrice
+      : null;
+
+    const stockMovementCount = movementCounts.get(product.id) ?? 0;
+
+    preparedUpdates.push({
+      productId: product.id,
+
+      data: {
+        status,
+
+        description,
+
+        costPrice,
+
+        sellingPrice,
+
+        /*
+         * Keep the old price field synchronized
+         * until all pages use sellingPrice.
+         */
+        price: sellingPrice,
+
+        hasStockHistory: stockMovementCount > 0,
+
+        stockMovementCount,
+
+        legacyMigrationVersion: 1,
+
+        legacyMigratedBy: currentUserId,
+
+        legacyMigratedAt: serverTimestamp(),
+
+        updatedBy: currentUserId,
+
+        updatedAt: serverTimestamp(),
+      },
+    });
+  }
+
+  let migratedCount = 0;
+
+  for (
+    let index = 0;
+    index < preparedUpdates.length;
+    index += PRODUCT_MIGRATION_BATCH_SIZE
+  ) {
+    const updateGroup = preparedUpdates.slice(
+      index,
+      index + PRODUCT_MIGRATION_BATCH_SIZE,
+    );
+
+    const batch = writeBatch(db);
+
+    for (const update of updateGroup) {
+      batch.update(doc(db, "products", update.productId), update.data);
+    }
+
+    await batch.commit();
+
+    migratedCount += updateGroup.length;
+  }
+
+  return {
+    requested: migrationCandidates.length,
+
+    migrated: migratedCount,
+
+    skipped: errors.length,
+
+    errors,
+  };
+}
+
+/**
  * Creates a new product and reserves its exact
  * product-master source record.
  */
-export async function createProduct(
-  productData,
-) {
-  const currentUserId =
-    getCurrentUserId();
+export async function createProduct(productData) {
+  const currentUserId = getCurrentUserId();
 
-  const name =
-    prepareProductName(
-      productData?.name,
-    );
+  const name = prepareProductName(productData?.name);
 
-  const sku =
-    prepareProductSku(
-      productData?.sku,
-    );
+  const sku = prepareProductSku(productData?.sku);
 
-  const description =
-    prepareDescription(
-      productData?.description,
-    );
+  const description = prepareDescription(productData?.description);
 
-  const categoryCode =
-    prepareCategoryCode(
-      productData?.categoryCode,
-    );
+  const categoryCode = prepareCategoryCode(productData?.categoryCode);
 
-  const unitCode =
-    prepareUnitCode(
-      productData?.unitCode,
-    );
+  const unitCode = prepareUnitCode(productData?.unitCode);
 
-  const sellingPrice =
-    prepareMoneyValue(
-      productData?.sellingPrice ??
-        productData?.price,
+  const sellingPrice = prepareMoneyValue(
+    productData?.sellingPrice ?? productData?.price,
 
-      "Selling price",
-    );
-
-  const costPrice =
-    prepareOptionalCostPrice(
-      productData?.costPrice,
-    );
-
-  const quantity =
-    prepareWholeNumber(
-      productData?.quantity,
-      "Initial quantity",
-    );
-
-  const reorderLevel =
-    prepareWholeNumber(
-      productData?.reorderLevel,
-      "Reorder level",
-    );
-
-  const sourceProductId =
-    prepareOptionalSourceProductId(
-      productData?.sourceProductId ??
-        productData?.selectedProductId,
-    );
-
-  const categoryReference = doc(
-    db,
-    "categories",
-    categoryCode,
+    "Selling price",
   );
 
-  const unitReference = doc(
-    db,
-    "units",
-    unitCode,
+  const costPrice = prepareOptionalCostPrice(productData?.costPrice);
+
+  const quantity = prepareWholeNumber(
+    productData?.quantity,
+    "Initial quantity",
   );
 
-  const productReference = doc(
-    collection(
-      db,
-      "products",
-    ),
+  const reorderLevel = prepareWholeNumber(
+    productData?.reorderLevel,
+    "Reorder level",
   );
 
-  const reservationReference =
-    sourceProductId
-      ? doc(
-          db,
-          "productMasterReservations",
-          sourceProductId,
-        )
-      : null;
+  const sourceProductId = prepareOptionalSourceProductId(
+    productData?.sourceProductId ?? productData?.selectedProductId,
+  );
+
+  const categoryReference = doc(db, "categories", categoryCode);
+
+  const unitReference = doc(db, "units", unitCode);
+
+  const productReference = doc(collection(db, "products"));
+
+  const reservationReference = sourceProductId
+    ? doc(db, "productMasterReservations", sourceProductId)
+    : null;
 
   let generatedBarcode = "";
 
@@ -483,53 +582,27 @@ export async function createProduct(
         /*
          * Read the selected category.
          */
-        const categorySnapshot =
-          await transaction.get(
-            categoryReference,
-          );
+        const categorySnapshot = await transaction.get(categoryReference);
 
-        if (
-          !categorySnapshot.exists()
-        ) {
-          throw new Error(
-            "The selected category no longer exists.",
-          );
+        if (!categorySnapshot.exists()) {
+          throw new Error("The selected category no longer exists.");
         }
 
-        const category =
-          categorySnapshot.data();
+        const category = categorySnapshot.data();
 
-        if (
-          category.status !==
-          PRODUCT_STATUSES.ACTIVE
-        ) {
-          throw new Error(
-            `The category "${category.name}" is not active.`,
-          );
+        if (category.status !== PRODUCT_STATUSES.ACTIVE) {
+          throw new Error(`The category "${category.name}" is not active.`);
         }
 
-        resolvedCategoryName =
-          String(
-            category.name ?? "",
-          ).trim();
+        resolvedCategoryName = String(category.name ?? "").trim();
 
-        resolvedBarcodePrefix =
-          String(
-            category.barcodePrefix ??
-              "",
-          ).trim();
+        resolvedBarcodePrefix = String(category.barcodePrefix ?? "").trim();
 
         if (!resolvedCategoryName) {
-          throw new Error(
-            "The selected category does not have a valid name.",
-          );
+          throw new Error("The selected category does not have a valid name.");
         }
 
-        if (
-          !/^\d{2}$/.test(
-            resolvedBarcodePrefix,
-          )
-        ) {
+        if (!/^\d{2}$/.test(resolvedBarcodePrefix)) {
           throw new Error(
             "The selected category does not have a valid two-digit barcode prefix.",
           );
@@ -538,52 +611,29 @@ export async function createProduct(
         /*
          * Read the selected unit.
          */
-        const unitSnapshot =
-          await transaction.get(
-            unitReference,
-          );
+        const unitSnapshot = await transaction.get(unitReference);
 
         if (!unitSnapshot.exists()) {
-          throw new Error(
-            "The selected unit of measurement no longer exists.",
-          );
+          throw new Error("The selected unit of measurement no longer exists.");
         }
 
-        const unit =
-          unitSnapshot.data();
+        const unit = unitSnapshot.data();
 
-        if (
-          unit.status !==
-          PRODUCT_STATUSES.ACTIVE
-        ) {
-          throw new Error(
-            `The unit "${unit.name}" is not active.`,
-          );
+        if (unit.status !== PRODUCT_STATUSES.ACTIVE) {
+          throw new Error(`The unit "${unit.name}" is not active.`);
         }
 
-        resolvedUnitName =
-          String(
-            unit.name ?? "",
-          ).trim();
+        resolvedUnitName = String(unit.name ?? "").trim();
 
-        resolvedUnitAbbreviation =
-          String(
-            unit.abbreviation ?? "",
-          )
-            .trim()
-            .toUpperCase();
+        resolvedUnitAbbreviation = String(unit.abbreviation ?? "")
+          .trim()
+          .toUpperCase();
 
         if (!resolvedUnitName) {
-          throw new Error(
-            "The selected unit does not have a valid name.",
-          );
+          throw new Error("The selected unit does not have a valid name.");
         }
 
-        if (
-          !/^[A-Z0-9]{1,10}$/.test(
-            resolvedUnitAbbreviation,
-          )
-        ) {
+        if (!/^[A-Z0-9]{1,10}$/.test(resolvedUnitAbbreviation)) {
           throw new Error(
             "The selected unit does not have a valid abbreviation.",
           );
@@ -595,13 +645,9 @@ export async function createProduct(
          */
         if (reservationReference) {
           const reservationSnapshot =
-            await transaction.get(
-              reservationReference,
-            );
+            await transaction.get(reservationReference);
 
-          if (
-            reservationSnapshot.exists()
-          ) {
+          if (reservationSnapshot.exists()) {
             throw new Error(
               "This product master record has already been added.",
             );
@@ -612,70 +658,35 @@ export async function createProduct(
          * Read the barcode sequence before starting
          * transaction writes.
          */
-        const counterReference =
-          doc(
-            db,
-            "barcodeCounters",
-            resolvedBarcodePrefix,
-          );
+        const counterReference = doc(
+          db,
+          "barcodeCounters",
+          resolvedBarcodePrefix,
+        );
 
-        const counterSnapshot =
-          await transaction.get(
-            counterReference,
-          );
+        const counterSnapshot = await transaction.get(counterReference);
 
-        const previousSequence =
-          counterSnapshot.exists()
-            ? Number(
-                counterSnapshot
-                  .data()
-                  .lastSequence ?? 0,
-              )
-            : 0;
+        const previousSequence = counterSnapshot.exists()
+          ? Number(counterSnapshot.data().lastSequence ?? 0)
+          : 0;
 
-        if (
-          !Number.isInteger(
-            previousSequence,
-          ) ||
-          previousSequence < 0
-        ) {
-          throw new Error(
-            "The barcode counter contains an invalid sequence.",
-          );
+        if (!Number.isInteger(previousSequence) || previousSequence < 0) {
+          throw new Error("The barcode counter contains an invalid sequence.");
         }
 
-        const nextSequence =
-          previousSequence + 1;
+        const nextSequence = previousSequence + 1;
 
-        if (
-          nextSequence >
-          999999999
-        ) {
-          throw new Error(
-            "The barcode sequence for this category is full.",
-          );
+        if (nextSequence > 999999999) {
+          throw new Error("The barcode sequence for this category is full.");
         }
 
-        const sequenceText =
-          String(
-            nextSequence,
-          ).padStart(
-            9,
-            "0",
-          );
+        const sequenceText = String(nextSequence).padStart(9, "0");
 
-        const firstElevenDigits =
-          resolvedBarcodePrefix +
-          sequenceText;
+        const firstElevenDigits = resolvedBarcodePrefix + sequenceText;
 
-        const checkDigit =
-          calculateUpcCheckDigit(
-            firstElevenDigits,
-          );
+        const checkDigit = calculateUpcCheckDigit(firstElevenDigits);
 
-        generatedBarcode =
-          firstElevenDigits +
-          String(checkDigit);
+        generatedBarcode = firstElevenDigits + String(checkDigit);
 
         /*
          * Update barcode counter.
@@ -684,19 +695,15 @@ export async function createProduct(
           counterReference,
 
           {
-            category:
-              resolvedCategoryName,
+            category: resolvedCategoryName,
 
             categoryCode,
 
-            barcodePrefix:
-              resolvedBarcodePrefix,
+            barcodePrefix: resolvedBarcodePrefix,
 
-            lastSequence:
-              nextSequence,
+            lastSequence: nextSequence,
 
-            updatedAt:
-              serverTimestamp(),
+            updatedAt: serverTimestamp(),
           },
 
           {
@@ -723,33 +730,25 @@ export async function createProduct(
 
             description,
 
-            status:
-              PRODUCT_STATUSES.ACTIVE,
+            status: PRODUCT_STATUSES.ACTIVE,
 
-            category:
-              resolvedCategoryName,
+            category: resolvedCategoryName,
 
-            categoryName:
-              resolvedCategoryName,
+            categoryName: resolvedCategoryName,
 
             categoryCode,
 
-            categoryId:
-              categoryCode,
+            categoryId: categoryCode,
 
-            barcodePrefix:
-              resolvedBarcodePrefix,
+            barcodePrefix: resolvedBarcodePrefix,
 
             unitCode,
 
-            unitId:
-              unitCode,
+            unitId: unitCode,
 
-            unitName:
-              resolvedUnitName,
+            unitName: resolvedUnitName,
 
-            unitAbbreviation:
-              resolvedUnitAbbreviation,
+            unitAbbreviation: resolvedUnitAbbreviation,
 
             costPrice,
 
@@ -759,33 +758,25 @@ export async function createProduct(
              * Keep the existing price field until
              * all pages use sellingPrice.
              */
-            price:
-              sellingPrice,
+            price: sellingPrice,
 
             quantity,
 
             reorderLevel,
 
-            barcode:
-              generatedBarcode,
+            barcode: generatedBarcode,
 
-            hasStockHistory:
-              false,
+            hasStockHistory: false,
 
-            stockMovementCount:
-              0,
+            stockMovementCount: 0,
 
-            createdBy:
-              currentUserId,
+            createdBy: currentUserId,
 
-            createdAt:
-              serverTimestamp(),
+            createdAt: serverTimestamp(),
 
-            updatedBy:
-              currentUserId,
+            updatedBy: currentUserId,
 
-            updatedAt:
-              serverTimestamp(),
+            updatedAt: serverTimestamp(),
           },
         );
 
@@ -799,16 +790,13 @@ export async function createProduct(
             {
               sourceProductId,
 
-              productId:
-                productReference.id,
+              productId: productReference.id,
 
               sku,
 
-              createdBy:
-                currentUserId,
+              createdBy: currentUserId,
 
-              createdAt:
-                serverTimestamp(),
+              createdAt: serverTimestamp(),
             },
           );
         }
@@ -816,41 +804,30 @@ export async function createProduct(
     );
 
     return {
-      id:
-        productReference.id,
+      id: productReference.id,
 
-      sourceProductId:
-        sourceProductId ||
-        null,
+      sourceProductId: sourceProductId || null,
 
-      barcode:
-        generatedBarcode,
+      barcode: generatedBarcode,
 
-      category:
-        resolvedCategoryName,
+      category: resolvedCategoryName,
 
       categoryCode,
 
       unitCode,
 
-      unitName:
-        resolvedUnitName,
+      unitName: resolvedUnitName,
 
-      unitAbbreviation:
-        resolvedUnitAbbreviation,
+      unitAbbreviation: resolvedUnitAbbreviation,
 
       costPrice,
 
       sellingPrice,
 
-      status:
-        PRODUCT_STATUSES.ACTIVE,
+      status: PRODUCT_STATUSES.ACTIVE,
     };
   } catch (error) {
-    console.error(
-      "Unable to create Firestore product:",
-      error,
-    );
+    console.error("Unable to create Firestore product:", error);
 
     throw error;
   }
@@ -859,33 +836,18 @@ export async function createProduct(
 /**
  * Assigns an active unit to an older product.
  */
-export async function assignProductUnit(
-  productId,
-  unitCode,
-) {
+export async function assignProductUnit(productId, unitCode) {
   if (!productId) {
-    throw new Error(
-      "A product ID is required.",
-    );
+    throw new Error("A product ID is required.");
   }
 
-  const currentUserId =
-    getCurrentUserId();
+  const currentUserId = getCurrentUserId();
 
-  const normalizedUnitCode =
-    prepareUnitCode(unitCode);
+  const normalizedUnitCode = prepareUnitCode(unitCode);
 
-  const productReference = doc(
-    db,
-    "products",
-    productId,
-  );
+  const productReference = doc(db, "products", productId);
 
-  const unitReference = doc(
-    db,
-    "units",
-    normalizedUnitCode,
-  );
+  const unitReference = doc(db, "units", normalizedUnitCode);
 
   let assignedUnit = null;
 
@@ -894,87 +856,49 @@ export async function assignProductUnit(
       db,
 
       async (transaction) => {
-        const productSnapshot =
-          await transaction.get(
-            productReference,
-          );
+        const productSnapshot = await transaction.get(productReference);
 
-        if (
-          !productSnapshot.exists()
-        ) {
-          throw new Error(
-            "The selected product no longer exists.",
-          );
+        if (!productSnapshot.exists()) {
+          throw new Error("The selected product no longer exists.");
         }
 
-        const unitSnapshot =
-          await transaction.get(
-            unitReference,
-          );
+        const unitSnapshot = await transaction.get(unitReference);
 
         if (!unitSnapshot.exists()) {
-          throw new Error(
-            "The selected unit of measurement no longer exists.",
-          );
+          throw new Error("The selected unit of measurement no longer exists.");
         }
 
-        const product =
-          productSnapshot.data();
+        const product = productSnapshot.data();
 
-        const unit =
-          unitSnapshot.data();
+        const unit = unitSnapshot.data();
 
-        if (
-          unit.status !==
-          PRODUCT_STATUSES.ACTIVE
-        ) {
-          throw new Error(
-            `The unit "${unit.name}" is not active.`,
-          );
+        if (unit.status !== PRODUCT_STATUSES.ACTIVE) {
+          throw new Error(`The unit "${unit.name}" is not active.`);
         }
 
-        const resolvedUnitName =
-          String(
-            unit.name ?? "",
-          ).trim();
+        const resolvedUnitName = String(unit.name ?? "").trim();
 
-        const resolvedUnitAbbreviation =
-          String(
-            unit.abbreviation ?? "",
-          )
-            .trim()
-            .toUpperCase();
+        const resolvedUnitAbbreviation = String(unit.abbreviation ?? "")
+          .trim()
+          .toUpperCase();
 
         if (!resolvedUnitName) {
-          throw new Error(
-            "The selected unit does not have a valid name.",
-          );
+          throw new Error("The selected unit does not have a valid name.");
         }
 
-        if (
-          !/^[A-Z0-9]{1,10}$/.test(
-            resolvedUnitAbbreviation,
-          )
-        ) {
+        if (!/^[A-Z0-9]{1,10}$/.test(resolvedUnitAbbreviation)) {
           throw new Error(
             "The selected unit does not have a valid abbreviation.",
           );
         }
 
-        const existingUnitCode =
-          String(
-            product.unitCode ??
-              product.unitId ??
-              "",
-          )
-            .trim()
-            .toUpperCase();
+        const existingUnitCode = String(
+          product.unitCode ?? product.unitId ?? "",
+        )
+          .trim()
+          .toUpperCase();
 
-        if (
-          existingUnitCode &&
-          existingUnitCode !==
-            normalizedUnitCode
-        ) {
+        if (existingUnitCode && existingUnitCode !== normalizedUnitCode) {
           throw new Error(
             `This product is already assigned to unit ${existingUnitCode}.`,
           );
@@ -984,45 +908,33 @@ export async function assignProductUnit(
           productReference,
 
           {
-            unitCode:
-              normalizedUnitCode,
+            unitCode: normalizedUnitCode,
 
-            unitId:
-              normalizedUnitCode,
+            unitId: normalizedUnitCode,
 
-            unitName:
-              resolvedUnitName,
+            unitName: resolvedUnitName,
 
-            unitAbbreviation:
-              resolvedUnitAbbreviation,
+            unitAbbreviation: resolvedUnitAbbreviation,
 
-            updatedBy:
-              currentUserId,
+            updatedBy: currentUserId,
 
-            updatedAt:
-              serverTimestamp(),
+            updatedAt: serverTimestamp(),
           },
         );
 
         assignedUnit = {
-          unitCode:
-            normalizedUnitCode,
+          unitCode: normalizedUnitCode,
 
-          unitName:
-            resolvedUnitName,
+          unitName: resolvedUnitName,
 
-          unitAbbreviation:
-            resolvedUnitAbbreviation,
+          unitAbbreviation: resolvedUnitAbbreviation,
         };
       },
     );
 
     return assignedUnit;
   } catch (error) {
-    console.error(
-      "Unable to assign product unit:",
-      error,
-    );
+    console.error("Unable to assign product unit:", error);
 
     throw error;
   }
@@ -1032,37 +944,21 @@ export async function assignProductUnit(
  * Assigns a permanent source-row identity to an
  * older product and creates its reservation.
  */
-export async function assignProductSourceIdentity(
-  productId,
-  sourceProductId,
-) {
+export async function assignProductSourceIdentity(productId, sourceProductId) {
   if (!productId) {
-    throw new Error(
-      "A product ID is required.",
-    );
+    throw new Error("A product ID is required.");
   }
 
-  const currentUserId =
-    getCurrentUserId();
+  const currentUserId = getCurrentUserId();
 
   const normalizedSourceProductId =
-    prepareOptionalSourceProductId(
-      sourceProductId,
-    );
+    prepareOptionalSourceProductId(sourceProductId);
 
-  if (
-    !normalizedSourceProductId
-  ) {
-    throw new Error(
-      "A product master source ID is required.",
-    );
+  if (!normalizedSourceProductId) {
+    throw new Error("A product master source ID is required.");
   }
 
-  const productReference = doc(
-    db,
-    "products",
-    productId,
-  );
+  const productReference = doc(db, "products", productId);
 
   const reservationReference = doc(
     db,
@@ -1077,37 +973,23 @@ export async function assignProductSourceIdentity(
       db,
 
       async (transaction) => {
-        const productSnapshot =
-          await transaction.get(
-            productReference,
-          );
+        const productSnapshot = await transaction.get(productReference);
 
-        if (
-          !productSnapshot.exists()
-        ) {
-          throw new Error(
-            "The selected product no longer exists.",
-          );
+        if (!productSnapshot.exists()) {
+          throw new Error("The selected product no longer exists.");
         }
 
-        const reservationSnapshot =
-          await transaction.get(
-            reservationReference,
-          );
+        const reservationSnapshot = await transaction.get(reservationReference);
 
-        const product =
-          productSnapshot.data();
+        const product = productSnapshot.data();
 
-        const existingSourceProductId =
-          String(
-            product.sourceProductId ??
-              "",
-          ).trim();
+        const existingSourceProductId = String(
+          product.sourceProductId ?? "",
+        ).trim();
 
         if (
           existingSourceProductId &&
-          existingSourceProductId !==
-            normalizedSourceProductId
+          existingSourceProductId !== normalizedSourceProductId
         ) {
           throw new Error(
             `This product is already linked to ${existingSourceProductId}.`,
@@ -1116,57 +998,43 @@ export async function assignProductSourceIdentity(
 
         if (
           reservationSnapshot.exists() &&
-          reservationSnapshot.data()
-            .productId !== productId
+          reservationSnapshot.data().productId !== productId
         ) {
           throw new Error(
             "This product master record is already linked to another product.",
           );
         }
 
-        const sku =
-          prepareProductSku(
-            product.sku,
-          );
+        const sku = prepareProductSku(product.sku);
 
-        if (
-          !existingSourceProductId
-        ) {
+        if (!existingSourceProductId) {
           transaction.update(
             productReference,
 
             {
-              sourceProductId:
-                normalizedSourceProductId,
+              sourceProductId: normalizedSourceProductId,
 
-              updatedBy:
-                currentUserId,
+              updatedBy: currentUserId,
 
-              updatedAt:
-                serverTimestamp(),
+              updatedAt: serverTimestamp(),
             },
           );
         }
 
-        if (
-          !reservationSnapshot.exists()
-        ) {
+        if (!reservationSnapshot.exists()) {
           transaction.set(
             reservationReference,
 
             {
-              sourceProductId:
-                normalizedSourceProductId,
+              sourceProductId: normalizedSourceProductId,
 
               productId,
 
               sku,
 
-              createdBy:
-                currentUserId,
+              createdBy: currentUserId,
 
-              createdAt:
-                serverTimestamp(),
+              createdAt: serverTimestamp(),
             },
           );
         }
@@ -1174,8 +1042,7 @@ export async function assignProductSourceIdentity(
         result = {
           productId,
 
-          sourceProductId:
-            normalizedSourceProductId,
+          sourceProductId: normalizedSourceProductId,
 
           sku,
         };
@@ -1184,10 +1051,7 @@ export async function assignProductSourceIdentity(
 
     return result;
   } catch (error) {
-    console.error(
-      "Unable to assign product source identity:",
-      error,
-    );
+    console.error("Unable to assign product source identity:", error);
 
     throw error;
   }
@@ -1199,24 +1063,14 @@ export async function assignProductSourceIdentity(
  * SKU, category, unit, barcode, and quantity are
  * intentionally excluded.
  */
-export async function updateProductMasterData(
-  productId,
-  productData,
-) {
+export async function updateProductMasterData(productId, productData) {
   if (!productId) {
-    throw new Error(
-      "A product ID is required.",
-    );
+    throw new Error("A product ID is required.");
   }
 
-  const currentUserId =
-    getCurrentUserId();
+  const currentUserId = getCurrentUserId();
 
-  const productReference = doc(
-    db,
-    "products",
-    productId,
-  );
+  const productReference = doc(db, "products", productId);
 
   let updatedProduct = null;
 
@@ -1225,38 +1079,23 @@ export async function updateProductMasterData(
       db,
 
       async (transaction) => {
-        const productSnapshot =
-          await transaction.get(
-            productReference,
-          );
+        const productSnapshot = await transaction.get(productReference);
 
-        if (
-          !productSnapshot.exists()
-        ) {
-          throw new Error(
-            "The selected product no longer exists.",
-          );
+        if (!productSnapshot.exists()) {
+          throw new Error("The selected product no longer exists.");
         }
 
-        const existingProduct =
-          productSnapshot.data();
+        const existingProduct = productSnapshot.data();
 
         /*
          * SKU cannot change.
          */
         if (
-          productData?.sku !==
-            undefined &&
-          normalizeProductSku(
-            productData.sku,
-          ) !==
-            normalizeProductSku(
-              existingProduct.sku,
-            )
+          productData?.sku !== undefined &&
+          normalizeProductSku(productData.sku) !==
+            normalizeProductSku(existingProduct.sku)
         ) {
-          throw new Error(
-            "The SKU is permanent and cannot be changed.",
-          );
+          throw new Error("The SKU is permanent and cannot be changed.");
         }
 
         /*
@@ -1264,15 +1103,9 @@ export async function updateProductMasterData(
          * the product's barcode prefix.
          */
         if (
-          productData?.category !==
-            undefined &&
-          String(
-            productData.category,
-          ).trim() !==
-            String(
-              existingProduct.category ??
-                "",
-            ).trim()
+          productData?.category !== undefined &&
+          String(productData.category).trim() !==
+            String(existingProduct.category ?? "").trim()
         ) {
           throw new Error(
             "The product category is permanent because it is linked to the barcode.",
@@ -1284,68 +1117,47 @@ export async function updateProductMasterData(
          * movements.
          */
         if (
-          productData?.quantity !==
-            undefined &&
-          Number(
-            productData.quantity,
-          ) !==
-            Number(
-              existingProduct.quantity ??
-                0,
-            )
+          productData?.quantity !== undefined &&
+          Number(productData.quantity) !== Number(existingProduct.quantity ?? 0)
         ) {
           throw new Error(
             "Use Stock In or Stock Out to change the product quantity.",
           );
         }
 
-        const name =
-          prepareProductName(
-            productData?.name ??
-              existingProduct.name,
-          );
+        const name = prepareProductName(
+          productData?.name ?? existingProduct.name,
+        );
 
-        const description =
-          prepareDescription(
-            productData?.description ??
-              existingProduct.description ??
-              "",
-          );
+        const description = prepareDescription(
+          productData?.description ?? existingProduct.description ?? "",
+        );
 
         const costPrice =
-          productData?.costPrice !==
-          undefined
-            ? prepareOptionalCostPrice(
-                productData.costPrice,
-              )
-            : prepareOptionalCostPrice(
-                existingProduct.costPrice,
-              );
+          productData?.costPrice !== undefined
+            ? prepareOptionalCostPrice(productData.costPrice)
+            : prepareOptionalCostPrice(existingProduct.costPrice);
 
-        const sellingPrice =
-          prepareMoneyValue(
-            productData?.sellingPrice ??
-              productData?.price ??
-              existingProduct.sellingPrice ??
-              existingProduct.price,
+        const sellingPrice = prepareMoneyValue(
+          productData?.sellingPrice ??
+            productData?.price ??
+            existingProduct.sellingPrice ??
+            existingProduct.price,
 
-            "Selling price",
-          );
+          "Selling price",
+        );
 
-        const reorderLevel =
-          prepareWholeNumber(
-            productData?.reorderLevel ??
-              existingProduct.reorderLevel,
+        const reorderLevel = prepareWholeNumber(
+          productData?.reorderLevel ?? existingProduct.reorderLevel,
 
-            "Reorder level",
-          );
+          "Reorder level",
+        );
 
-        const status =
-          prepareProductStatus(
-            productData?.status ??
-              existingProduct.status ??
-              PRODUCT_STATUSES.ACTIVE,
-          );
+        const status = prepareProductStatus(
+          productData?.status ??
+            existingProduct.status ??
+            PRODUCT_STATUSES.ACTIVE,
+        );
 
         transaction.update(
           productReference,
@@ -1359,24 +1171,20 @@ export async function updateProductMasterData(
 
             sellingPrice,
 
-            price:
-              sellingPrice,
+            price: sellingPrice,
 
             reorderLevel,
 
             status,
 
-            updatedBy:
-              currentUserId,
+            updatedBy: currentUserId,
 
-            updatedAt:
-              serverTimestamp(),
+            updatedAt: serverTimestamp(),
           },
         );
 
         updatedProduct = {
-          id:
-            productId,
+          id: productId,
 
           name,
 
@@ -1395,10 +1203,7 @@ export async function updateProductMasterData(
 
     return updatedProduct;
   } catch (error) {
-    console.error(
-      "Unable to update product master data:",
-      error,
-    );
+    console.error("Unable to update product master data:", error);
 
     throw error;
   }
@@ -1407,23 +1212,14 @@ export async function updateProductMasterData(
 /**
  * Backward-compatible function for existing pages.
  */
-export async function updateProduct(
-  productId,
-  productData,
-) {
-  return updateProductMasterData(
-    productId,
-    productData,
-  );
+export async function updateProduct(productId, productData) {
+  return updateProductMasterData(productId, productData);
 }
 
 /**
  * Activates or deactivates a product.
  */
-export async function updateProductStatus(
-  productId,
-  status,
-) {
+export async function updateProductStatus(productId, status) {
   return updateProductMasterData(
     productId,
 
@@ -1437,88 +1233,53 @@ export async function updateProductStatus(
  * Deletes only a new product that has no remaining
  * stock and no stock movement history.
  */
-export async function deleteProduct(
-  productId,
-) {
+export async function deleteProduct(productId) {
   if (!productId) {
-    throw new Error(
-      "A product ID is required.",
-    );
+    throw new Error("A product ID is required.");
   }
 
   getCurrentUserId();
 
-  const productReference = doc(
-    db,
-    "products",
-    productId,
-  );
+  const productReference = doc(db, "products", productId);
 
   try {
     await runTransaction(
       db,
 
       async (transaction) => {
-        const productSnapshot =
-          await transaction.get(
-            productReference,
-          );
+        const productSnapshot = await transaction.get(productReference);
 
-        if (
-          !productSnapshot.exists()
-        ) {
-          throw new Error(
-            "The selected product no longer exists.",
-          );
+        if (!productSnapshot.exists()) {
+          throw new Error("The selected product no longer exists.");
         }
 
-        const product =
-          productSnapshot.data();
+        const product = productSnapshot.data();
 
         const hasReliableHistoryFlags =
-          typeof product.hasStockHistory ===
-            "boolean" &&
-          Number.isInteger(
-            product.stockMovementCount,
-          );
+          typeof product.hasStockHistory === "boolean" &&
+          Number.isInteger(product.stockMovementCount);
 
-        if (
-          !hasReliableHistoryFlags
-        ) {
+        if (!hasReliableHistoryFlags) {
           throw new Error(
             "This legacy product must be migrated before deletion can be evaluated safely.",
           );
         }
 
-        if (
-          product.hasStockHistory ||
-          product.stockMovementCount > 0
-        ) {
+        if (product.hasStockHistory || product.stockMovementCount > 0) {
           throw new Error(
             "This product cannot be deleted because it already has stock history. Deactivate it instead.",
           );
         }
 
-        if (
-          Number(
-            product.quantity ?? 0,
-          ) !== 0
-        ) {
-          throw new Error(
-            "A product with remaining stock cannot be deleted.",
-          );
+        if (Number(product.quantity ?? 0) !== 0) {
+          throw new Error("A product with remaining stock cannot be deleted.");
         }
 
-        transaction.delete(
-          productReference,
-        );
+        transaction.delete(productReference);
       },
     );
   } catch (error) {
-    console.error(
-      "Unable to delete Firestore product:",
-      error,
-    );
+    console.error("Unable to delete Firestore product:", error);
 
     throw error;
   }
@@ -1528,112 +1289,56 @@ export async function deleteProduct(
  * Performs Stock In or Stock Out and records a
  * permanent movement document.
  */
-export async function adjustProductStock(
-  productId,
-  movementType,
-  amount,
-) {
+export async function adjustProductStock(productId, movementType, amount) {
   if (!productId) {
-    throw new Error(
-      "A product ID is required.",
-    );
+    throw new Error("A product ID is required.");
   }
 
-  if (
-    movementType !== "IN" &&
-    movementType !== "OUT"
-  ) {
-    throw new Error(
-      "Movement type must be IN or OUT.",
-    );
+  if (movementType !== "IN" && movementType !== "OUT") {
+    throw new Error("Movement type must be IN or OUT.");
   }
 
-  const currentUserId =
-    getCurrentUserId();
+  const currentUserId = getCurrentUserId();
 
-  const adjustmentAmount =
-    prepareWholeNumber(
-      amount,
-      "Stock quantity",
-    );
+  const adjustmentAmount = prepareWholeNumber(amount, "Stock quantity");
 
-  if (
-    adjustmentAmount === 0
-  ) {
-    throw new Error(
-      "The stock quantity must be greater than zero.",
-    );
+  if (adjustmentAmount === 0) {
+    throw new Error("The stock quantity must be greater than zero.");
   }
 
-  const productReference = doc(
-    db,
-    "products",
-    productId,
-  );
+  const productReference = doc(db, "products", productId);
 
-  const movementReference = doc(
-    collection(
-      db,
-      "stockMovements",
-    ),
-  );
+  const movementReference = doc(collection(db, "stockMovements"));
 
   try {
     await runTransaction(
       db,
 
       async (transaction) => {
-        const productSnapshot =
-          await transaction.get(
-            productReference,
-          );
+        const productSnapshot = await transaction.get(productReference);
 
-        if (
-          !productSnapshot.exists()
-        ) {
-          throw new Error(
-            "The selected product no longer exists.",
-          );
+        if (!productSnapshot.exists()) {
+          throw new Error("The selected product no longer exists.");
         }
 
-        const product =
-          productSnapshot.data();
+        const product = productSnapshot.data();
 
-        const productStatus =
-          product.status ??
-          PRODUCT_STATUSES.ACTIVE;
+        const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
 
-        if (
-          productStatus !==
-          PRODUCT_STATUSES.ACTIVE
-        ) {
-          throw new Error(
-            "Inactive products cannot receive stock movements.",
-          );
+        if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
+          throw new Error("Inactive products cannot receive stock movements.");
         }
 
-        const previousQuantity =
-          Number(
-            product.quantity ?? 0,
-          );
+        const previousQuantity = Number(product.quantity ?? 0);
 
-        if (
-          !Number.isInteger(
-            previousQuantity,
-          ) ||
-          previousQuantity < 0
-        ) {
-          throw new Error(
-            "The product contains an invalid stock quantity.",
-          );
+        if (!Number.isInteger(previousQuantity) || previousQuantity < 0) {
+          throw new Error("The product contains an invalid stock quantity.");
         }
 
         const newQuantity =
           movementType === "IN"
-            ? previousQuantity +
-              adjustmentAmount
-            : previousQuantity -
-              adjustmentAmount;
+            ? previousQuantity + adjustmentAmount
+            : previousQuantity - adjustmentAmount;
 
         if (newQuantity < 0) {
           throw new Error(
@@ -1641,102 +1346,69 @@ export async function adjustProductStock(
           );
         }
 
-        const storedMovementCount =
-          Number(
-            product.stockMovementCount ??
-              0,
-          );
+        const storedMovementCount = Number(product.stockMovementCount ?? 0);
 
         const previousMovementCount =
-          Number.isInteger(
-            storedMovementCount,
-          ) &&
-          storedMovementCount >= 0
+          Number.isInteger(storedMovementCount) && storedMovementCount >= 0
             ? storedMovementCount
             : 0;
 
         const movementData = {
           productId,
 
-          productName:
-            product.name,
+          productName: product.name,
 
-          productSku:
-            product.sku,
+          productSku: product.sku,
 
           movementType,
 
           reason:
-            movementType === "IN"
-              ? "MANUAL_STOCK_IN"
-              : "MANUAL_STOCK_OUT",
+            movementType === "IN" ? "MANUAL_STOCK_IN" : "MANUAL_STOCK_OUT",
 
-          quantity:
-            adjustmentAmount,
+          quantity: adjustmentAmount,
 
           previousQuantity,
 
           newQuantity,
 
-          createdBy:
-            currentUserId,
+          createdBy: currentUserId,
 
-          createdAt:
-            serverTimestamp(),
+          createdAt: serverTimestamp(),
         };
 
-        if (
-          product.categoryCode
-        ) {
-          movementData.categoryCode =
-            product.categoryCode;
+        if (product.categoryCode) {
+          movementData.categoryCode = product.categoryCode;
         }
 
         if (product.unitCode) {
-          movementData.unitCode =
-            product.unitCode;
+          movementData.unitCode = product.unitCode;
         }
 
-        if (
-          product.unitAbbreviation
-        ) {
-          movementData.unitAbbreviation =
-            product.unitAbbreviation;
+        if (product.unitAbbreviation) {
+          movementData.unitAbbreviation = product.unitAbbreviation;
         }
 
         transaction.update(
           productReference,
 
           {
-            quantity:
-              newQuantity,
+            quantity: newQuantity,
 
-            hasStockHistory:
-              true,
+            hasStockHistory: true,
 
-            stockMovementCount:
-              previousMovementCount +
-              1,
+            stockMovementCount: previousMovementCount + 1,
 
-            updatedBy:
-              currentUserId,
+            updatedBy: currentUserId,
 
-            updatedAt:
-              serverTimestamp(),
+            updatedAt: serverTimestamp(),
           },
         );
 
-        transaction.set(
-          movementReference,
-          movementData,
-        );
+        transaction.set(movementReference, movementData);
       },
     );
   } catch (error) {
-    console.error(
-      "Unable to adjust product stock:",
-      error,
-    );
+    console.error("Unable to adjust product stock:", error);
 
     throw error;
   }

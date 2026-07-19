@@ -12,6 +12,7 @@ import {
   DashboardIcon,
   InventoryIcon,
   LogoutIcon,
+  ProductsIcon,
   ReportsIcon,
   UnitIcon,
   UserIcon,
@@ -30,6 +31,18 @@ const NAVIGATION_ITEMS = [
     label: "Inventory",
     path: "/inventory",
     icon: InventoryIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Product Management",
+    path: "/products",
+    icon: ProductsIcon,
     allowedRoles: [
       USER_ROLES.SUPERADMIN,
       USER_ROLES.ADMIN,

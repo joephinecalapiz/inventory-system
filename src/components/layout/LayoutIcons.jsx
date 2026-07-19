@@ -22,10 +22,7 @@ export function InventoryIcon() {
 
 export function CategoryIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
+    <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M4 5h6v6H4V5Z" />
       <path d="M14 5h6v6h-6V5Z" />
       <path d="M4 15h6v4H4v-4Z" />
@@ -115,6 +112,16 @@ export function ReportsIcon() {
       <path d="M10 20V4" />
       <path d="M16 20v-7" />
       <path d="M22 20H2" />
+    </svg>
+  );
+}
+
+export function ProductsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m4 7 8-4 8 4-8 4-8-4Z" />
+      <path d="M4 7v10l8 4 8-4V7" />
+      <path d="M12 11v10" />
     </svg>
   );
 }

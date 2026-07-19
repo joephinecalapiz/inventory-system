@@ -4,6 +4,7 @@ import { MenuIcon } from "./LayoutIcons";
 const PAGE_TITLES = {
   "/dashboard": "Dashboard",
   "/inventory": "Inventory List",
+  "/products": "Product Management",
   "/categories": "Category Management",
   "/units": "Units of Measurement",
 
