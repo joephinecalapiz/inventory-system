@@ -6,17 +6,11 @@ import { USER_ROLES } from "../constants/roles";
 
 import { PRODUCT_OPTIONS } from "../data/productOptions";
 
-import {
-  subscribeToActiveCategories,
-} from "../services/categoryService";
+import { subscribeToActiveCategories } from "../services/categoryService";
 
-import {
-  subscribeToActiveUnits,
-} from "../services/unitService";
+import { subscribeToActiveUnits } from "../services/unitService";
 
-import {
-  createProduct,
-} from "../services/productService";
+import { createProduct } from "../services/productService";
 
 const EMPTY_FORM = {
   selectedProductId: "",
@@ -35,34 +29,19 @@ function AddProduct({ currentUserRole }) {
     ...EMPTY_FORM,
   });
 
-  const [activeCategories, setActiveCategories] =
-    useState([]);
+  const [activeCategories, setActiveCategories] = useState([]);
 
-  const [activeUnits, setActiveUnits] =
-    useState([]);
+  const [activeUnits, setActiveUnits] = useState([]);
 
-  const [
-    isLoadingCategories,
-    setIsLoadingCategories,
-  ] = useState(true);
+  const [isLoadingCategories, setIsLoadingCategories] = useState(true);
 
-  const [
-    isLoadingUnits,
-    setIsLoadingUnits,
-  ] = useState(true);
+  const [isLoadingUnits, setIsLoadingUnits] = useState(true);
 
-  const [
-    categoryLoadError,
-    setCategoryLoadError,
-  ] = useState("");
+  const [categoryLoadError, setCategoryLoadError] = useState("");
 
-  const [
-    unitLoadError,
-    setUnitLoadError,
-  ] = useState("");
+  const [unitLoadError, setUnitLoadError] = useState("");
 
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [message, setMessage] = useState({
     type: "",
@@ -76,98 +55,79 @@ function AddProduct({ currentUserRole }) {
   ].includes(currentUserRole);
 
   useEffect(() => {
-    const unsubscribe =
-      subscribeToActiveCategories(
-        (categories) => {
-          setActiveCategories(categories);
-          setIsLoadingCategories(false);
-          setCategoryLoadError("");
-        },
+    const unsubscribe = subscribeToActiveCategories(
+      (categories) => {
+        setActiveCategories(categories);
+        setIsLoadingCategories(false);
+        setCategoryLoadError("");
+      },
 
-        (error) => {
-          console.error(
-            "Unable to load active categories:",
-            error,
-          );
+      (error) => {
+        console.error("Unable to load active categories:", error);
 
-          setCategoryLoadError(
-            error?.message ||
-              "Unable to load active categories.",
-          );
+        setCategoryLoadError(
+          error?.message || "Unable to load active categories.",
+        );
 
-          setIsLoadingCategories(false);
-        },
-      );
+        setIsLoadingCategories(false);
+      },
+    );
 
     return unsubscribe;
   }, []);
 
   useEffect(() => {
-    const unsubscribe =
-      subscribeToActiveUnits(
-        (units) => {
-          setActiveUnits(units);
-          setIsLoadingUnits(false);
-          setUnitLoadError("");
+    const unsubscribe = subscribeToActiveUnits(
+      (units) => {
+        setActiveUnits(units);
+        setIsLoadingUnits(false);
+        setUnitLoadError("");
 
-          /*
-           * Clear a selected unit if an administrator
-           * deactivates it while this form is open.
-           */
-          setForm((currentForm) => {
-            if (!currentForm.unitCode) {
-              return currentForm;
-            }
+        /*
+         * Clear a selected unit if an administrator
+         * deactivates it while this form is open.
+         */
+        setForm((currentForm) => {
+          if (!currentForm.unitCode) {
+            return currentForm;
+          }
 
-            const unitStillActive = units.some(
-              (unit) =>
-                (unit.code ?? unit.id) ===
-                currentForm.unitCode,
-            );
-
-            if (unitStillActive) {
-              return currentForm;
-            }
-
-            return {
-              ...currentForm,
-              unitCode: "",
-            };
-          });
-        },
-
-        (error) => {
-          console.error(
-            "Unable to load active units:",
-            error,
+          const unitStillActive = units.some(
+            (unit) => (unit.code ?? unit.id) === currentForm.unitCode,
           );
 
-          setUnitLoadError(
-            error?.message ||
-              "Unable to load active units of measurement.",
-          );
+          if (unitStillActive) {
+            return currentForm;
+          }
 
-          setIsLoadingUnits(false);
-        },
-      );
+          return {
+            ...currentForm,
+            unitCode: "",
+          };
+        });
+      },
+
+      (error) => {
+        console.error("Unable to load active units:", error);
+
+        setUnitLoadError(
+          error?.message || "Unable to load active units of measurement.",
+        );
+
+        setIsLoadingUnits(false);
+      },
+    );
 
     return unsubscribe;
   }, []);
 
   const activeCategoryNames = useMemo(() => {
-    return new Set(
-      activeCategories.map(
-        (category) => category.name,
-      ),
-    );
+    return new Set(activeCategories.map((category) => category.name));
   }, [activeCategories]);
 
   const availableProductOptions = useMemo(() => {
-    return PRODUCT_OPTIONS.filter(
-      (product) =>
-        activeCategoryNames.has(
-          product.category,
-        ),
+    return PRODUCT_OPTIONS.filter((product) =>
+      activeCategoryNames.has(product.category),
     );
   }, [activeCategoryNames]);
 
@@ -181,14 +141,11 @@ function AddProduct({ currentUserRole }) {
   }
 
   function handleProductChange(event) {
-    const selectedProductId =
-      event.target.value;
+    const selectedProductId = event.target.value;
 
-    const selectedProduct =
-      availableProductOptions.find(
-        (product) =>
-          product.id === selectedProductId,
-      );
+    const selectedProduct = availableProductOptions.find(
+      (product) => product.id === selectedProductId,
+    );
 
     if (!selectedProduct) {
       setForm((currentForm) => ({
@@ -200,12 +157,9 @@ function AddProduct({ currentUserRole }) {
       return;
     }
 
-    const selectedCategory =
-      activeCategories.find(
-        (category) =>
-          category.name ===
-          selectedProduct.category,
-      );
+    const selectedCategory = activeCategories.find(
+      (category) => category.name === selectedProduct.category,
+    );
 
     if (!selectedCategory) {
       setForm((currentForm) => ({
@@ -221,9 +175,7 @@ function AddProduct({ currentUserRole }) {
       return;
     }
 
-    const numericPrice = Number(
-      selectedProduct.price,
-    );
+    const numericPrice = Number(selectedProduct.price);
 
     const hasValidPrice =
       selectedProduct.price !== null &&
@@ -234,26 +186,17 @@ function AddProduct({ currentUserRole }) {
     setForm((currentForm) => ({
       ...currentForm,
 
-      selectedProductId:
-        selectedProduct.id,
+      selectedProductId: selectedProduct.id,
 
-      name:
-        selectedProduct.name,
+      name: selectedProduct.name,
 
-      sku:
-        selectedProduct.sku,
+      sku: selectedProduct.sku,
 
-      category:
-        selectedCategory.name,
+      category: selectedCategory.name,
 
-      categoryCode:
-        selectedCategory.code ??
-        selectedCategory.id,
+      categoryCode: selectedCategory.code ?? selectedCategory.id,
 
-      price:
-        hasValidPrice
-          ? String(selectedProduct.price)
-          : "",
+      price: hasValidPrice ? String(selectedProduct.price) : "",
     }));
 
     if (!hasValidPrice) {
@@ -269,8 +212,7 @@ function AddProduct({ currentUserRole }) {
   }
 
   function handleChange(event) {
-    const { name, value } =
-      event.target;
+    const { name, value } = event.target;
 
     setForm((currentForm) => ({
       ...currentForm,
@@ -294,46 +236,30 @@ function AddProduct({ currentUserRole }) {
     }
 
     const selectedUnit = activeUnits.find(
-      (unit) =>
-        (unit.code ?? unit.id) ===
-        form.unitCode,
+      (unit) => (unit.code ?? unit.id) === form.unitCode,
     );
 
     if (!selectedUnit) {
       return "The selected unit of measurement is no longer active.";
     }
 
-    if (
-      !form.name ||
-      !form.sku ||
-      !form.category
-    ) {
+    if (!form.name || !form.sku || !form.category) {
       return "The selected product is missing master-list information.";
     }
 
     const price = Number(form.price);
 
-    if (
-      form.price === "" ||
-      !Number.isFinite(price)
-    ) {
+    if (form.price === "" || !Number.isFinite(price)) {
       return "The selected product must have a valid unit price.";
     }
 
-    if (
-      form.quantity === "" ||
-      form.reorderLevel === ""
-    ) {
+    if (form.quantity === "" || form.reorderLevel === "") {
       return "Please enter the quantity and reorder level.";
     }
 
-    const quantity = Number(
-      form.quantity,
-    );
+    const quantity = Number(form.quantity);
 
-    const reorderLevel = Number(
-      form.reorderLevel,
-    );
+    const reorderLevel = Number(form.reorderLevel);
 
     if (!Number.isInteger(quantity)) {
       return "Quantity must be a whole number.";
@@ -343,11 +269,7 @@ function AddProduct({ currentUserRole }) {
       return "Reorder level must be a whole number.";
     }
 
-    if (
-      quantity < 0 ||
-      reorderLevel < 0 ||
-      price < 0
-    ) {
+    if (quantity < 0 || reorderLevel < 0 || price < 0) {
       return "Quantity, reorder level, and unit price cannot be negative.";
     }
 
@@ -366,8 +288,7 @@ function AddProduct({ currentUserRole }) {
       return;
     }
 
-    const validationError =
-      validateForm();
+    const validationError = validateForm();
 
     if (validationError) {
       setMessage({
@@ -379,35 +300,32 @@ function AddProduct({ currentUserRole }) {
     }
 
     const productData = {
+      sourceProductId: form.selectedProductId,
+
       name: form.name.trim(),
 
-      sku: form.sku
-        .trim()
-        .toUpperCase(),
+      sku: form.sku.trim().toUpperCase(),
 
-      category:
-        form.category.trim(),
+      description: "",
 
-      categoryCode:
-        form.categoryCode
-          .trim()
-          .toUpperCase(),
+      category: form.category.trim(),
 
-      unitCode:
-        form.unitCode
-          .trim()
-          .toUpperCase(),
+      categoryCode: form.categoryCode.trim().toUpperCase(),
 
-      price:
-        Number(form.price),
+      unitCode: form.unitCode.trim().toUpperCase(),
 
-      quantity:
-        Number(form.quantity),
+      costPrice: null,
 
-      reorderLevel:
-        Number(form.reorderLevel),
+      sellingPrice: Number(form.price),
+
+      // Keep this for compatibility with the current
+      // Inventory page and older product records.
+      price: Number(form.price),
+
+      quantity: Number(form.quantity),
+
+      reorderLevel: Number(form.reorderLevel),
     };
-
     try {
       setIsSubmitting(true);
 
@@ -416,9 +334,7 @@ function AddProduct({ currentUserRole }) {
         text: "",
       });
 
-      const result = await createProduct(
-        productData,
-      );
+      const result = await createProduct(productData);
 
       setForm({
         ...EMPTY_FORM,
@@ -429,10 +345,7 @@ function AddProduct({ currentUserRole }) {
         text: `${productData.name} was added successfully using ${result.unitName} (${result.unitAbbreviation}). Barcode ${result.barcode} was generated using the ${result.category} category prefix.`,
       });
     } catch (error) {
-      console.error(
-        "Unable to create product:",
-        error,
-      );
+      console.error("Unable to create product:", error);
 
       setMessage({
         type: "error",
@@ -449,19 +362,14 @@ function AddProduct({ currentUserRole }) {
     return (
       <main className="page">
         <section className="product-access-denied">
-          <div className="product-access-denied-icon">
-            !
-          </div>
+          <div className="product-access-denied-icon">!</div>
 
           <p>Access denied</p>
 
-          <h2>
-            You cannot add products
-          </h2>
+          <h2>You cannot add products</h2>
 
           <span>
-            Your current role does not have
-            permission to create inventory
+            Your current role does not have permission to create inventory
             products.
           </span>
         </section>
@@ -469,29 +377,21 @@ function AddProduct({ currentUserRole }) {
     );
   }
 
-  const isLoadingMasterData =
-    isLoadingCategories ||
-    isLoadingUnits;
+  const isLoadingMasterData = isLoadingCategories || isLoadingUnits;
 
   const hasMasterDataError =
-    Boolean(categoryLoadError) ||
-    Boolean(unitLoadError);
+    Boolean(categoryLoadError) || Boolean(unitLoadError);
 
   return (
     <main className="add-product-page">
       <header className="add-product-heading">
         <div>
-          <p>
-            Product management
-          </p>
+          <p>Product management</p>
 
-          <h2>
-            Add Product
-          </h2>
+          <h2>Add Product</h2>
 
           <span>
-            Select a product, category-linked
-            barcode, and active unit of
+            Select a product, category-linked barcode, and active unit of
             measurement.
           </span>
         </div>
@@ -499,13 +399,9 @@ function AddProduct({ currentUserRole }) {
 
       <section className="add-product-card">
         <div className="add-product-card-header">
-          <p>
-            New inventory record
-          </p>
+          <p>New inventory record</p>
 
-          <h3>
-            Product Information
-          </h3>
+          <h3>Product Information</h3>
         </div>
 
         {categoryLoadError && (
@@ -529,37 +425,23 @@ function AddProduct({ currentUserRole }) {
         {message.text && (
           <div
             className={`add-product-message add-product-message-${message.type}`}
-            role={
-              message.type === "error"
-                ? "alert"
-                : "status"
-            }
+            role={message.type === "error" ? "alert" : "status"}
           >
             {message.text}
           </div>
         )}
 
-        <form
-          className="add-product-form"
-          onSubmit={handleSubmit}
-        >
+        <form className="add-product-form" onSubmit={handleSubmit}>
           <label>
             Product name
-
             <select
               name="selectedProductId"
-              value={
-                form.selectedProductId
-              }
-              onChange={
-                handleProductChange
-              }
+              value={form.selectedProductId}
+              onChange={handleProductChange}
               disabled={
                 isSubmitting ||
                 isLoadingCategories ||
-                Boolean(
-                  categoryLoadError,
-                )
+                Boolean(categoryLoadError)
               }
               required
             >
@@ -571,22 +453,16 @@ function AddProduct({ currentUserRole }) {
                     : "Select a product"}
               </option>
 
-              {availableProductOptions.map(
-                (product) => (
-                  <option
-                    key={product.id}
-                    value={product.id}
-                  >
-                    {product.name}
-                  </option>
-                ),
-              )}
+              {availableProductOptions.map((product) => (
+                <option key={product.id} value={product.id}>
+                  {product.name}
+                </option>
+              ))}
             </select>
           </label>
 
           <label>
             SKU
-
             <input
               type="text"
               value={form.sku}
@@ -597,7 +473,6 @@ function AddProduct({ currentUserRole }) {
 
           <label>
             Category
-
             <input
               type="text"
               value={form.category}
@@ -608,12 +483,9 @@ function AddProduct({ currentUserRole }) {
 
           <label>
             Category code
-
             <input
               type="text"
-              value={
-                form.categoryCode
-              }
+              value={form.categoryCode}
               placeholder="Automatically selected"
               readOnly
             />
@@ -621,15 +493,12 @@ function AddProduct({ currentUserRole }) {
 
           <label>
             Unit of measurement
-
             <select
               name="unitCode"
               value={form.unitCode}
               onChange={handleChange}
               disabled={
-                isSubmitting ||
-                isLoadingUnits ||
-                Boolean(unitLoadError)
+                isSubmitting || isLoadingUnits || Boolean(unitLoadError)
               }
               required
             >
@@ -642,15 +511,8 @@ function AddProduct({ currentUserRole }) {
               </option>
 
               {activeUnits.map((unit) => (
-                <option
-                  key={unit.id}
-                  value={
-                    unit.code ??
-                    unit.id
-                  }
-                >
-                  {unit.name} (
-                  {unit.abbreviation})
+                <option key={unit.id} value={unit.code ?? unit.id}>
+                  {unit.name} ({unit.abbreviation})
                 </option>
               ))}
             </select>
@@ -658,7 +520,6 @@ function AddProduct({ currentUserRole }) {
 
           <label>
             Unit price
-
             <input
               type="number"
               value={form.price}
@@ -668,13 +529,10 @@ function AddProduct({ currentUserRole }) {
           </label>
 
           <div className="add-product-barcode-note">
-            <strong>
-              Firestore master data
-            </strong>
+            <strong>Firestore master data</strong>
 
             <span>
-              The system verifies both the
-              selected category and unit before
+              The system verifies both the selected category and unit before
               saving the product.
             </span>
           </div>
@@ -682,7 +540,6 @@ function AddProduct({ currentUserRole }) {
           <div className="add-product-form-row">
             <label>
               Initial quantity
-
               <input
                 type="number"
                 name="quantity"
@@ -698,13 +555,10 @@ function AddProduct({ currentUserRole }) {
 
             <label>
               Reorder level
-
               <input
                 type="number"
                 name="reorderLevel"
-                value={
-                  form.reorderLevel
-                }
+                value={form.reorderLevel}
                 onChange={handleChange}
                 min="0"
                 step="1"
@@ -729,9 +583,7 @@ function AddProduct({ currentUserRole }) {
                 form.price === ""
               }
             >
-              {isSubmitting
-                ? "Saving Product..."
-                : "Add Product"}
+              {isSubmitting ? "Saving Product..." : "Add Product"}
             </button>
 
             <button

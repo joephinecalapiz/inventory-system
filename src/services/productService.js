@@ -1,30 +1,272 @@
 import {
   collection,
-  deleteDoc,
   doc,
   onSnapshot,
   runTransaction,
   serverTimestamp,
-  updateDoc,
 } from "firebase/firestore";
 
-import { db } from "../firebase/firebase";
+import { auth, db } from "../firebase/firebase";
 
-const productsCollection = collection(db, "products");
+import {
+  PRODUCT_LIMITS,
+  PRODUCT_STATUSES,
+  isValidMoneyValue,
+  isValidProductSku,
+  isValidProductStatus,
+  isValidSourceProductId,
+  isValidWholeNumber,
+  normalizeProductName,
+  normalizeProductSku,
+  normalizeSourceProductId,
+} from "../constants/products";
 
-
+const productsCollection = collection(
+  db,
+  "products",
+);
 
 /**
- * Calculates the final check digit of a 12-digit UPC-A barcode.
+ * Returns the currently signed-in Firebase user ID.
  */
-function calculateUpcCheckDigit(firstElevenDigits) {
-  if (!/^\d{11}$/.test(firstElevenDigits)) {
+function getCurrentUserId() {
+  const currentUserId =
+    auth.currentUser?.uid;
+
+  if (!currentUserId) {
+    throw new Error(
+      "You must be signed in to manage products.",
+    );
+  }
+
+  return currentUserId;
+}
+
+function prepareProductName(value) {
+  const name =
+    normalizeProductName(value);
+
+  if (
+    name.length <
+    PRODUCT_LIMITS.NAME_MIN_LENGTH
+  ) {
+    throw new Error(
+      "The product name must contain at least 2 characters.",
+    );
+  }
+
+  if (
+    name.length >
+    PRODUCT_LIMITS.NAME_MAX_LENGTH
+  ) {
+    throw new Error(
+      "The product name cannot exceed 150 characters.",
+    );
+  }
+
+  return name;
+}
+
+function prepareProductSku(value) {
+  const sku =
+    normalizeProductSku(value);
+
+  if (!isValidProductSku(sku)) {
+    throw new Error(
+      "The SKU must contain 2 to 50 supported characters.",
+    );
+  }
+
+  return sku;
+}
+
+function prepareDescription(value) {
+  const description = String(
+    value ?? "",
+  ).trim();
+
+  if (
+    description.length >
+    PRODUCT_LIMITS.DESCRIPTION_MAX_LENGTH
+  ) {
+    throw new Error(
+      "The product description cannot exceed 500 characters.",
+    );
+  }
+
+  return description;
+}
+
+function prepareMoneyValue(
+  value,
+  fieldLabel,
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    throw new Error(
+      `${fieldLabel} is required.`,
+    );
+  }
+
+  const amount = Number(value);
+
+  if (!isValidMoneyValue(amount)) {
+    throw new Error(
+      `${fieldLabel} must be a valid non-negative amount.`,
+    );
+  }
+
+  return amount;
+}
+
+function prepareOptionalCostPrice(value) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return null;
+  }
+
+  return prepareMoneyValue(
+    value,
+    "Cost price",
+  );
+}
+
+function prepareWholeNumber(
+  value,
+  fieldLabel,
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    throw new Error(
+      `${fieldLabel} is required.`,
+    );
+  }
+
+  const amount = Number(value);
+
+  if (!isValidWholeNumber(amount)) {
+    throw new Error(
+      `${fieldLabel} must be a non-negative whole number.`,
+    );
+  }
+
+  return amount;
+}
+
+function prepareProductStatus(value) {
+  const status = String(
+    value ??
+      PRODUCT_STATUSES.ACTIVE,
+  )
+    .trim()
+    .toUpperCase();
+
+  if (!isValidProductStatus(status)) {
+    throw new Error(
+      "The product status must be ACTIVE or INACTIVE.",
+    );
+  }
+
+  return status;
+}
+
+function prepareOptionalSourceProductId(
+  value,
+) {
+  if (
+    value === undefined ||
+    value === null ||
+    value === ""
+  ) {
+    return "";
+  }
+
+  const sourceProductId =
+    normalizeSourceProductId(value);
+
+  if (
+    !isValidSourceProductId(
+      sourceProductId,
+    )
+  ) {
+    throw new Error(
+      "The product master source ID is invalid.",
+    );
+  }
+
+  return sourceProductId;
+}
+
+function prepareCategoryCode(value) {
+  const categoryCode = String(
+    value ?? "",
+  )
+    .trim()
+    .toUpperCase();
+
+  if (
+    !/^[A-Z0-9_]{2,50}$/.test(
+      categoryCode,
+    )
+  ) {
+    throw new Error(
+      "A valid Firestore category code is required.",
+    );
+  }
+
+  return categoryCode;
+}
+
+function prepareUnitCode(value) {
+  const unitCode = String(
+    value ?? "",
+  )
+    .trim()
+    .toUpperCase();
+
+  if (
+    !/^[A-Z0-9_]{1,50}$/.test(
+      unitCode,
+    )
+  ) {
+    throw new Error(
+      "A valid unit of measurement is required.",
+    );
+  }
+
+  return unitCode;
+}
+
+/**
+ * Calculates the final check digit of a
+ * 12-digit UPC-A barcode.
+ */
+function calculateUpcCheckDigit(
+  firstElevenDigits,
+) {
+  if (
+    !/^\d{11}$/.test(
+      firstElevenDigits,
+    )
+  ) {
     throw new Error(
       "The barcode base must contain exactly 11 digits.",
     );
   }
 
-  const digits = firstElevenDigits.split("").map(Number);
+  const digits =
+    firstElevenDigits
+      .split("")
+      .map(Number);
 
   const oddPositionTotal =
     (
@@ -44,12 +286,15 @@ function calculateUpcCheckDigit(firstElevenDigits) {
     digits[9];
 
   return (
-    10 - ((oddPositionTotal + evenPositionTotal) % 10)
+    10 -
+    ((oddPositionTotal +
+      evenPositionTotal) %
+      10)
   ) % 10;
 }
 
 /**
- * Loads products and listens for Firestore changes.
+ * Loads all products and listens for changes.
  */
 export function subscribeToProducts(
   onProductsChanged,
@@ -59,26 +304,34 @@ export function subscribeToProducts(
     productsCollection,
 
     (snapshot) => {
-      const products = snapshot.docs.map(
-        (productDocument) => ({
-          id: productDocument.id,
-          ...productDocument.data(),
-        }),
-      );
+      const products =
+        snapshot.docs.map(
+          (productDocument) => ({
+            id:
+              productDocument.id,
 
-      products.sort((firstProduct, secondProduct) => {
-        const firstCreatedAt =
-          firstProduct.createdAt?.toMillis?.() ?? 0;
+            ...productDocument.data(),
+          }),
+        );
 
-        const secondCreatedAt =
-          secondProduct.createdAt?.toMillis?.() ?? 0;
+      products.sort(
+        (
+          firstProduct,
+          secondProduct,
+        ) => {
+          const firstCreatedAt =
+            firstProduct.createdAt
+              ?.toMillis?.() ?? 0;
 
-        return secondCreatedAt - firstCreatedAt;
-      });
+          const secondCreatedAt =
+            secondProduct.createdAt
+              ?.toMillis?.() ?? 0;
 
-      console.log(
-        "Products loaded from Firestore:",
-        products,
+          return (
+            secondCreatedAt -
+            firstCreatedAt
+          );
+        },
       );
 
       onProductsChanged(products);
@@ -90,49 +343,99 @@ export function subscribeToProducts(
         error,
       );
 
-      if (onError) {
-        onError(error);
-      }
+      onError?.(error);
     },
   );
 }
 
+
+export function subscribeToActiveProducts(
+  onProductsChanged,
+  onError,
+) {
+  return subscribeToProducts(
+    (products) => {
+      onProductsChanged(
+        products.filter(
+          (product) =>
+            (
+              product.status ??
+              PRODUCT_STATUSES.ACTIVE
+            ) ===
+            PRODUCT_STATUSES.ACTIVE,
+        ),
+      );
+    },
+
+    onError,
+  );
+}
+
 /**
- * Creates a product and generates its barcode
- * using active Firestore category and unit records.
+ * Creates a new product and reserves its exact
+ * product-master source record.
  */
-export async function createProduct(productData) {
-  const categoryCode = String(
-    productData?.categoryCode ?? "",
-  )
-    .trim()
-    .toUpperCase();
+export async function createProduct(
+  productData,
+) {
+  const currentUserId =
+    getCurrentUserId();
 
-  const unitCode = String(
-    productData?.unitCode ?? "",
-  )
-    .trim()
-    .toUpperCase();
-
-  if (
-    !/^[A-Z0-9_]{2,50}$/.test(
-      categoryCode,
-    )
-  ) {
-    throw new Error(
-      "A valid Firestore category code is required.",
+  const name =
+    prepareProductName(
+      productData?.name,
     );
-  }
 
-  if (
-    !/^[A-Z0-9_]{1,50}$/.test(
-      unitCode,
-    )
-  ) {
-    throw new Error(
-      "A valid unit of measurement is required.",
+  const sku =
+    prepareProductSku(
+      productData?.sku,
     );
-  }
+
+  const description =
+    prepareDescription(
+      productData?.description,
+    );
+
+  const categoryCode =
+    prepareCategoryCode(
+      productData?.categoryCode,
+    );
+
+  const unitCode =
+    prepareUnitCode(
+      productData?.unitCode,
+    );
+
+  const sellingPrice =
+    prepareMoneyValue(
+      productData?.sellingPrice ??
+        productData?.price,
+
+      "Selling price",
+    );
+
+  const costPrice =
+    prepareOptionalCostPrice(
+      productData?.costPrice,
+    );
+
+  const quantity =
+    prepareWholeNumber(
+      productData?.quantity,
+      "Initial quantity",
+    );
+
+  const reorderLevel =
+    prepareWholeNumber(
+      productData?.reorderLevel,
+      "Reorder level",
+    );
+
+  const sourceProductId =
+    prepareOptionalSourceProductId(
+      productData?.sourceProductId ??
+        productData?.selectedProductId,
+    );
 
   const categoryReference = doc(
     db,
@@ -147,20 +450,35 @@ export async function createProduct(productData) {
   );
 
   const productReference = doc(
-    collection(db, "products"),
+    collection(
+      db,
+      "products",
+    ),
   );
+
+  const reservationReference =
+    sourceProductId
+      ? doc(
+          db,
+          "productMasterReservations",
+          sourceProductId,
+        )
+      : null;
 
   let generatedBarcode = "";
 
   let resolvedCategoryName = "";
+
   let resolvedBarcodePrefix = "";
 
   let resolvedUnitName = "";
+
   let resolvedUnitAbbreviation = "";
 
   try {
     await runTransaction(
       db,
+
       async (transaction) => {
         /*
          * Read the selected category.
@@ -170,7 +488,9 @@ export async function createProduct(productData) {
             categoryReference,
           );
 
-        if (!categorySnapshot.exists()) {
+        if (
+          !categorySnapshot.exists()
+        ) {
           throw new Error(
             "The selected category no longer exists.",
           );
@@ -179,19 +499,25 @@ export async function createProduct(productData) {
         const category =
           categorySnapshot.data();
 
-        if (category.status !== "ACTIVE") {
+        if (
+          category.status !==
+          PRODUCT_STATUSES.ACTIVE
+        ) {
           throw new Error(
             `The category "${category.name}" is not active.`,
           );
         }
 
-        resolvedCategoryName = String(
-          category.name ?? "",
-        ).trim();
+        resolvedCategoryName =
+          String(
+            category.name ?? "",
+          ).trim();
 
-        resolvedBarcodePrefix = String(
-          category.barcodePrefix ?? "",
-        ).trim();
+        resolvedBarcodePrefix =
+          String(
+            category.barcodePrefix ??
+              "",
+          ).trim();
 
         if (!resolvedCategoryName) {
           throw new Error(
@@ -210,8 +536,7 @@ export async function createProduct(productData) {
         }
 
         /*
-         * Read the selected unit before performing
-         * any transaction writes.
+         * Read the selected unit.
          */
         const unitSnapshot =
           await transaction.get(
@@ -224,23 +549,29 @@ export async function createProduct(productData) {
           );
         }
 
-        const unit = unitSnapshot.data();
+        const unit =
+          unitSnapshot.data();
 
-        if (unit.status !== "ACTIVE") {
+        if (
+          unit.status !==
+          PRODUCT_STATUSES.ACTIVE
+        ) {
           throw new Error(
             `The unit "${unit.name}" is not active.`,
           );
         }
 
-        resolvedUnitName = String(
-          unit.name ?? "",
-        ).trim();
+        resolvedUnitName =
+          String(
+            unit.name ?? "",
+          ).trim();
 
-        resolvedUnitAbbreviation = String(
-          unit.abbreviation ?? "",
-        )
-          .trim()
-          .toUpperCase();
+        resolvedUnitAbbreviation =
+          String(
+            unit.abbreviation ?? "",
+          )
+            .trim()
+            .toUpperCase();
 
         if (!resolvedUnitName) {
           throw new Error(
@@ -258,16 +589,36 @@ export async function createProduct(productData) {
           );
         }
 
-        const counterReference = doc(
-          db,
-          "barcodeCounters",
-          resolvedBarcodePrefix,
-        );
+        /*
+         * Check whether the exact product-master
+         * record was already added.
+         */
+        if (reservationReference) {
+          const reservationSnapshot =
+            await transaction.get(
+              reservationReference,
+            );
+
+          if (
+            reservationSnapshot.exists()
+          ) {
+            throw new Error(
+              "This product master record has already been added.",
+            );
+          }
+        }
 
         /*
-         * This is the final transaction read.
-         * All writes happen afterward.
+         * Read the barcode sequence before starting
+         * transaction writes.
          */
+        const counterReference =
+          doc(
+            db,
+            "barcodeCounters",
+            resolvedBarcodePrefix,
+          );
+
         const counterSnapshot =
           await transaction.get(
             counterReference,
@@ -276,25 +627,42 @@ export async function createProduct(productData) {
         const previousSequence =
           counterSnapshot.exists()
             ? Number(
-                counterSnapshot.data()
+                counterSnapshot
+                  .data()
                   .lastSequence ?? 0,
               )
             : 0;
+
+        if (
+          !Number.isInteger(
+            previousSequence,
+          ) ||
+          previousSequence < 0
+        ) {
+          throw new Error(
+            "The barcode counter contains an invalid sequence.",
+          );
+        }
 
         const nextSequence =
           previousSequence + 1;
 
         if (
-          nextSequence > 999999999
+          nextSequence >
+          999999999
         ) {
           throw new Error(
             "The barcode sequence for this category is full.",
           );
         }
 
-        const sequenceText = String(
-          nextSequence,
-        ).padStart(9, "0");
+        const sequenceText =
+          String(
+            nextSequence,
+          ).padStart(
+            9,
+            "0",
+          );
 
         const firstElevenDigits =
           resolvedBarcodePrefix +
@@ -309,8 +677,12 @@ export async function createProduct(productData) {
           firstElevenDigits +
           String(checkDigit);
 
+        /*
+         * Update barcode counter.
+         */
         transaction.set(
           counterReference,
+
           {
             category:
               resolvedCategoryName,
@@ -326,27 +698,34 @@ export async function createProduct(productData) {
             updatedAt:
               serverTimestamp(),
           },
+
           {
             merge: true,
           },
         );
 
+        /*
+         * Create the product.
+         */
         transaction.set(
           productReference,
+
           {
-            name: String(
-              productData.name,
-            ).trim(),
+            ...(sourceProductId
+              ? {
+                  sourceProductId,
+                }
+              : {}),
 
-            sku: String(
-              productData.sku,
-            )
-              .trim()
-              .toUpperCase(),
+            name,
 
-            /*
-             * Category snapshot fields.
-             */
+            sku,
+
+            description,
+
+            status:
+              PRODUCT_STATUSES.ACTIVE,
+
             category:
               resolvedCategoryName,
 
@@ -361,13 +740,6 @@ export async function createProduct(productData) {
             barcodePrefix:
               resolvedBarcodePrefix,
 
-            /*
-             * Unit snapshot fields.
-             *
-             * These allow product lists and reports
-             * to display the unit without making a
-             * separate Firestore request each time.
-             */
             unitCode,
 
             unitId:
@@ -379,59 +751,77 @@ export async function createProduct(productData) {
             unitAbbreviation:
               resolvedUnitAbbreviation,
 
-            price: Number(
-              productData.price,
-            ),
+            costPrice,
 
-            quantity: Number(
-              productData.quantity,
-            ),
+            sellingPrice,
 
-            reorderLevel: Number(
-              productData.reorderLevel,
-            ),
+            /*
+             * Keep the existing price field until
+             * all pages use sellingPrice.
+             */
+            price:
+              sellingPrice,
+
+            quantity,
+
+            reorderLevel,
 
             barcode:
               generatedBarcode,
 
+            hasStockHistory:
+              false,
+
+            stockMovementCount:
+              0,
+
+            createdBy:
+              currentUserId,
+
             createdAt:
               serverTimestamp(),
+
+            updatedBy:
+              currentUserId,
 
             updatedAt:
               serverTimestamp(),
           },
         );
-      },
-    );
 
-    console.log(
-      "Product successfully saved:",
-      {
-        id:
-          productReference.id,
+        /*
+         * Reserve the exact master-list row.
+         */
+        if (reservationReference) {
+          transaction.set(
+            reservationReference,
 
-        name:
-          productData.name,
+            {
+              sourceProductId,
 
-        category:
-          resolvedCategoryName,
+              productId:
+                productReference.id,
 
-        categoryCode,
+              sku,
 
-        unit:
-          resolvedUnitName,
+              createdBy:
+                currentUserId,
 
-        unitAbbreviation:
-          resolvedUnitAbbreviation,
-
-        barcode:
-          generatedBarcode,
+              createdAt:
+                serverTimestamp(),
+            },
+          );
+        }
       },
     );
 
     return {
       id:
         productReference.id,
+
+      sourceProductId:
+        sourceProductId ||
+        null,
 
       barcode:
         generatedBarcode,
@@ -448,6 +838,13 @@ export async function createProduct(productData) {
 
       unitAbbreviation:
         resolvedUnitAbbreviation,
+
+      costPrice,
+
+      sellingPrice,
+
+      status:
+        PRODUCT_STATUSES.ACTIVE,
     };
   } catch (error) {
     console.error(
@@ -459,11 +856,8 @@ export async function createProduct(productData) {
   }
 }
 
-
 /**
- * Assigns an active Unit of Measurement to an
- * existing product without changing its barcode,
- * category, quantity, price, or other fields.
+ * Assigns an active unit to an older product.
  */
 export async function assignProductUnit(
   productId,
@@ -475,21 +869,11 @@ export async function assignProductUnit(
     );
   }
 
-  const normalizedUnitCode = String(
-    unitCode ?? "",
-  )
-    .trim()
-    .toUpperCase();
+  const currentUserId =
+    getCurrentUserId();
 
-  if (
-    !/^[A-Z0-9_]{1,50}$/.test(
-      normalizedUnitCode,
-    )
-  ) {
-    throw new Error(
-      "A valid unit of measurement is required.",
-    );
-  }
+  const normalizedUnitCode =
+    prepareUnitCode(unitCode);
 
   const productReference = doc(
     db,
@@ -508,28 +892,21 @@ export async function assignProductUnit(
   try {
     await runTransaction(
       db,
+
       async (transaction) => {
-        /*
-         * Read the product first.
-         */
         const productSnapshot =
           await transaction.get(
             productReference,
           );
 
-        if (!productSnapshot.exists()) {
+        if (
+          !productSnapshot.exists()
+        ) {
           throw new Error(
             "The selected product no longer exists.",
           );
         }
 
-        const product =
-          productSnapshot.data();
-
-        /*
-         * Read the Unit of Measurement before
-         * performing any transaction writes.
-         */
         const unitSnapshot =
           await transaction.get(
             unitReference,
@@ -541,18 +918,25 @@ export async function assignProductUnit(
           );
         }
 
+        const product =
+          productSnapshot.data();
+
         const unit =
           unitSnapshot.data();
 
-        if (unit.status !== "ACTIVE") {
+        if (
+          unit.status !==
+          PRODUCT_STATUSES.ACTIVE
+        ) {
           throw new Error(
             `The unit "${unit.name}" is not active.`,
           );
         }
 
-        const resolvedUnitName = String(
-          unit.name ?? "",
-        ).trim();
+        const resolvedUnitName =
+          String(
+            unit.name ?? "",
+          ).trim();
 
         const resolvedUnitAbbreviation =
           String(
@@ -577,21 +961,15 @@ export async function assignProductUnit(
           );
         }
 
-        const existingUnitCode = String(
-          product.unitCode ??
-            product.unitId ??
-            "",
-        )
-          .trim()
-          .toUpperCase();
+        const existingUnitCode =
+          String(
+            product.unitCode ??
+              product.unitId ??
+              "",
+          )
+            .trim()
+            .toUpperCase();
 
-        /*
-         * Do not allow an existing product's unit
-         * to be replaced with a different unit.
-         *
-         * The same unit code may be used to complete
-         * partially migrated product records.
-         */
         if (
           existingUnitCode &&
           existingUnitCode !==
@@ -604,6 +982,7 @@ export async function assignProductUnit(
 
         transaction.update(
           productReference,
+
           {
             unitCode:
               normalizedUnitCode,
@@ -616,6 +995,9 @@ export async function assignProductUnit(
 
             unitAbbreviation:
               resolvedUnitAbbreviation,
+
+            updatedBy:
+              currentUserId,
 
             updatedAt:
               serverTimestamp(),
@@ -635,14 +1017,6 @@ export async function assignProductUnit(
       },
     );
 
-    console.log(
-      "Product unit successfully assigned:",
-      {
-        productId,
-        ...assignedUnit,
-      },
-    );
-
     return assignedUnit;
   } catch (error) {
     console.error(
@@ -654,12 +1028,34 @@ export async function assignProductUnit(
   }
 }
 
-export async function updateProduct(
+/**
+ * Assigns a permanent source-row identity to an
+ * older product and creates its reservation.
+ */
+export async function assignProductSourceIdentity(
   productId,
-  productData,
+  sourceProductId,
 ) {
   if (!productId) {
-    throw new Error("A product ID is required.");
+    throw new Error(
+      "A product ID is required.",
+    );
+  }
+
+  const currentUserId =
+    getCurrentUserId();
+
+  const normalizedSourceProductId =
+    prepareOptionalSourceProductId(
+      sourceProductId,
+    );
+
+  if (
+    !normalizedSourceProductId
+  ) {
+    throw new Error(
+      "A product master source ID is required.",
+    );
   }
 
   const productReference = doc(
@@ -668,31 +1064,128 @@ export async function updateProduct(
     productId,
   );
 
+  const reservationReference = doc(
+    db,
+    "productMasterReservations",
+    normalizedSourceProductId,
+  );
+
+  let result = null;
+
   try {
-    await updateDoc(productReference, {
-      name: String(productData.name).trim(),
+    await runTransaction(
+      db,
 
-      sku: String(productData.sku)
-        .trim()
-        .toUpperCase(),
+      async (transaction) => {
+        const productSnapshot =
+          await transaction.get(
+            productReference,
+          );
 
-      category: String(productData.category).trim(),
+        if (
+          !productSnapshot.exists()
+        ) {
+          throw new Error(
+            "The selected product no longer exists.",
+          );
+        }
 
-      price: Number(productData.price),
+        const reservationSnapshot =
+          await transaction.get(
+            reservationReference,
+          );
 
-      quantity: Number(productData.quantity),
+        const product =
+          productSnapshot.data();
 
-      reorderLevel: Number(
-        productData.reorderLevel,
-      ),
+        const existingSourceProductId =
+          String(
+            product.sourceProductId ??
+              "",
+          ).trim();
 
-      updatedAt: serverTimestamp(),
-    });
+        if (
+          existingSourceProductId &&
+          existingSourceProductId !==
+            normalizedSourceProductId
+        ) {
+          throw new Error(
+            `This product is already linked to ${existingSourceProductId}.`,
+          );
+        }
 
-    console.log("Product successfully updated:", productId);
+        if (
+          reservationSnapshot.exists() &&
+          reservationSnapshot.data()
+            .productId !== productId
+        ) {
+          throw new Error(
+            "This product master record is already linked to another product.",
+          );
+        }
+
+        const sku =
+          prepareProductSku(
+            product.sku,
+          );
+
+        if (
+          !existingSourceProductId
+        ) {
+          transaction.update(
+            productReference,
+
+            {
+              sourceProductId:
+                normalizedSourceProductId,
+
+              updatedBy:
+                currentUserId,
+
+              updatedAt:
+                serverTimestamp(),
+            },
+          );
+        }
+
+        if (
+          !reservationSnapshot.exists()
+        ) {
+          transaction.set(
+            reservationReference,
+
+            {
+              sourceProductId:
+                normalizedSourceProductId,
+
+              productId,
+
+              sku,
+
+              createdBy:
+                currentUserId,
+
+              createdAt:
+                serverTimestamp(),
+            },
+          );
+        }
+
+        result = {
+          productId,
+
+          sourceProductId:
+            normalizedSourceProductId,
+
+          sku,
+        };
+      },
+    );
+
+    return result;
   } catch (error) {
     console.error(
-      "Unable to update Firestore product:",
+      "Unable to assign product source identity:",
       error,
     );
 
@@ -701,12 +1194,259 @@ export async function updateProduct(
 }
 
 /**
- * Deletes an existing product.
+ * Updates editable Product Master fields.
+ *
+ * SKU, category, unit, barcode, and quantity are
+ * intentionally excluded.
  */
-export async function deleteProduct(productId) {
+export async function updateProductMasterData(
+  productId,
+  productData,
+) {
   if (!productId) {
-    throw new Error("A product ID is required.");
+    throw new Error(
+      "A product ID is required.",
+    );
   }
+
+  const currentUserId =
+    getCurrentUserId();
+
+  const productReference = doc(
+    db,
+    "products",
+    productId,
+  );
+
+  let updatedProduct = null;
+
+  try {
+    await runTransaction(
+      db,
+
+      async (transaction) => {
+        const productSnapshot =
+          await transaction.get(
+            productReference,
+          );
+
+        if (
+          !productSnapshot.exists()
+        ) {
+          throw new Error(
+            "The selected product no longer exists.",
+          );
+        }
+
+        const existingProduct =
+          productSnapshot.data();
+
+        /*
+         * SKU cannot change.
+         */
+        if (
+          productData?.sku !==
+            undefined &&
+          normalizeProductSku(
+            productData.sku,
+          ) !==
+            normalizeProductSku(
+              existingProduct.sku,
+            )
+        ) {
+          throw new Error(
+            "The SKU is permanent and cannot be changed.",
+          );
+        }
+
+        /*
+         * Category cannot change because it controls
+         * the product's barcode prefix.
+         */
+        if (
+          productData?.category !==
+            undefined &&
+          String(
+            productData.category,
+          ).trim() !==
+            String(
+              existingProduct.category ??
+                "",
+            ).trim()
+        ) {
+          throw new Error(
+            "The product category is permanent because it is linked to the barcode.",
+          );
+        }
+
+        /*
+         * Quantity must only be changed using stock
+         * movements.
+         */
+        if (
+          productData?.quantity !==
+            undefined &&
+          Number(
+            productData.quantity,
+          ) !==
+            Number(
+              existingProduct.quantity ??
+                0,
+            )
+        ) {
+          throw new Error(
+            "Use Stock In or Stock Out to change the product quantity.",
+          );
+        }
+
+        const name =
+          prepareProductName(
+            productData?.name ??
+              existingProduct.name,
+          );
+
+        const description =
+          prepareDescription(
+            productData?.description ??
+              existingProduct.description ??
+              "",
+          );
+
+        const costPrice =
+          productData?.costPrice !==
+          undefined
+            ? prepareOptionalCostPrice(
+                productData.costPrice,
+              )
+            : prepareOptionalCostPrice(
+                existingProduct.costPrice,
+              );
+
+        const sellingPrice =
+          prepareMoneyValue(
+            productData?.sellingPrice ??
+              productData?.price ??
+              existingProduct.sellingPrice ??
+              existingProduct.price,
+
+            "Selling price",
+          );
+
+        const reorderLevel =
+          prepareWholeNumber(
+            productData?.reorderLevel ??
+              existingProduct.reorderLevel,
+
+            "Reorder level",
+          );
+
+        const status =
+          prepareProductStatus(
+            productData?.status ??
+              existingProduct.status ??
+              PRODUCT_STATUSES.ACTIVE,
+          );
+
+        transaction.update(
+          productReference,
+
+          {
+            name,
+
+            description,
+
+            costPrice,
+
+            sellingPrice,
+
+            price:
+              sellingPrice,
+
+            reorderLevel,
+
+            status,
+
+            updatedBy:
+              currentUserId,
+
+            updatedAt:
+              serverTimestamp(),
+          },
+        );
+
+        updatedProduct = {
+          id:
+            productId,
+
+          name,
+
+          description,
+
+          costPrice,
+
+          sellingPrice,
+
+          reorderLevel,
+
+          status,
+        };
+      },
+    );
+
+    return updatedProduct;
+  } catch (error) {
+    console.error(
+      "Unable to update product master data:",
+      error,
+    );
+
+    throw error;
+  }
+}
+
+/**
+ * Backward-compatible function for existing pages.
+ */
+export async function updateProduct(
+  productId,
+  productData,
+) {
+  return updateProductMasterData(
+    productId,
+    productData,
+  );
+}
+
+/**
+ * Activates or deactivates a product.
+ */
+export async function updateProductStatus(
+  productId,
+  status,
+) {
+  return updateProductMasterData(
+    productId,
+
+    {
+      status,
+    },
+  );
+}
+
+/**
+ * Deletes only a new product that has no remaining
+ * stock and no stock movement history.
+ */
+export async function deleteProduct(
+  productId,
+) {
+  if (!productId) {
+    throw new Error(
+      "A product ID is required.",
+    );
+  }
+
+  getCurrentUserId();
 
   const productReference = doc(
     db,
@@ -715,9 +1455,65 @@ export async function deleteProduct(productId) {
   );
 
   try {
-    await deleteDoc(productReference);
+    await runTransaction(
+      db,
 
-    console.log("Product successfully deleted:", productId);
+      async (transaction) => {
+        const productSnapshot =
+          await transaction.get(
+            productReference,
+          );
+
+        if (
+          !productSnapshot.exists()
+        ) {
+          throw new Error(
+            "The selected product no longer exists.",
+          );
+        }
+
+        const product =
+          productSnapshot.data();
+
+        const hasReliableHistoryFlags =
+          typeof product.hasStockHistory ===
+            "boolean" &&
+          Number.isInteger(
+            product.stockMovementCount,
+          );
+
+        if (
+          !hasReliableHistoryFlags
+        ) {
+          throw new Error(
+            "This legacy product must be migrated before deletion can be evaluated safely.",
+          );
+        }
+
+        if (
+          product.hasStockHistory ||
+          product.stockMovementCount > 0
+        ) {
+          throw new Error(
+            "This product cannot be deleted because it already has stock history. Deactivate it instead.",
+          );
+        }
+
+        if (
+          Number(
+            product.quantity ?? 0,
+          ) !== 0
+        ) {
+          throw new Error(
+            "A product with remaining stock cannot be deleted.",
+          );
+        }
+
+        transaction.delete(
+          productReference,
+        );
+      },
+    );
   } catch (error) {
     console.error(
       "Unable to delete Firestore product:",
@@ -729,7 +1525,8 @@ export async function deleteProduct(productId) {
 }
 
 /**
- * Performs Stock In or Stock Out and records the movement.
+ * Performs Stock In or Stock Out and records a
+ * permanent movement document.
  */
 export async function adjustProductStock(
   productId,
@@ -737,7 +1534,9 @@ export async function adjustProductStock(
   amount,
 ) {
   if (!productId) {
-    throw new Error("A product ID is required.");
+    throw new Error(
+      "A product ID is required.",
+    );
   }
 
   if (
@@ -749,14 +1548,20 @@ export async function adjustProductStock(
     );
   }
 
-  const adjustmentAmount = Number(amount);
+  const currentUserId =
+    getCurrentUserId();
+
+  const adjustmentAmount =
+    prepareWholeNumber(
+      amount,
+      "Stock quantity",
+    );
 
   if (
-    !Number.isInteger(adjustmentAmount) ||
-    adjustmentAmount <= 0
+    adjustmentAmount === 0
   ) {
     throw new Error(
-      "The stock quantity must be a positive whole number.",
+      "The stock quantity must be greater than zero.",
     );
   }
 
@@ -767,59 +1572,166 @@ export async function adjustProductStock(
   );
 
   const movementReference = doc(
-    collection(db, "stockMovements"),
+    collection(
+      db,
+      "stockMovements",
+    ),
   );
 
   try {
-    await runTransaction(db, async (transaction) => {
-      const productSnapshot =
-        await transaction.get(productReference);
+    await runTransaction(
+      db,
 
-      if (!productSnapshot.exists()) {
-        throw new Error(
-          "The selected product no longer exists.",
+      async (transaction) => {
+        const productSnapshot =
+          await transaction.get(
+            productReference,
+          );
+
+        if (
+          !productSnapshot.exists()
+        ) {
+          throw new Error(
+            "The selected product no longer exists.",
+          );
+        }
+
+        const product =
+          productSnapshot.data();
+
+        const productStatus =
+          product.status ??
+          PRODUCT_STATUSES.ACTIVE;
+
+        if (
+          productStatus !==
+          PRODUCT_STATUSES.ACTIVE
+        ) {
+          throw new Error(
+            "Inactive products cannot receive stock movements.",
+          );
+        }
+
+        const previousQuantity =
+          Number(
+            product.quantity ?? 0,
+          );
+
+        if (
+          !Number.isInteger(
+            previousQuantity,
+          ) ||
+          previousQuantity < 0
+        ) {
+          throw new Error(
+            "The product contains an invalid stock quantity.",
+          );
+        }
+
+        const newQuantity =
+          movementType === "IN"
+            ? previousQuantity +
+              adjustmentAmount
+            : previousQuantity -
+              adjustmentAmount;
+
+        if (newQuantity < 0) {
+          throw new Error(
+            `Insufficient stock. Only ${previousQuantity} item(s) are available.`,
+          );
+        }
+
+        const storedMovementCount =
+          Number(
+            product.stockMovementCount ??
+              0,
+          );
+
+        const previousMovementCount =
+          Number.isInteger(
+            storedMovementCount,
+          ) &&
+          storedMovementCount >= 0
+            ? storedMovementCount
+            : 0;
+
+        const movementData = {
+          productId,
+
+          productName:
+            product.name,
+
+          productSku:
+            product.sku,
+
+          movementType,
+
+          reason:
+            movementType === "IN"
+              ? "MANUAL_STOCK_IN"
+              : "MANUAL_STOCK_OUT",
+
+          quantity:
+            adjustmentAmount,
+
+          previousQuantity,
+
+          newQuantity,
+
+          createdBy:
+            currentUserId,
+
+          createdAt:
+            serverTimestamp(),
+        };
+
+        if (
+          product.categoryCode
+        ) {
+          movementData.categoryCode =
+            product.categoryCode;
+        }
+
+        if (product.unitCode) {
+          movementData.unitCode =
+            product.unitCode;
+        }
+
+        if (
+          product.unitAbbreviation
+        ) {
+          movementData.unitAbbreviation =
+            product.unitAbbreviation;
+        }
+
+        transaction.update(
+          productReference,
+
+          {
+            quantity:
+              newQuantity,
+
+            hasStockHistory:
+              true,
+
+            stockMovementCount:
+              previousMovementCount +
+              1,
+
+            updatedBy:
+              currentUserId,
+
+            updatedAt:
+              serverTimestamp(),
+          },
         );
-      }
 
-      const product = productSnapshot.data();
-
-      const previousQuantity = Number(
-        product.quantity ?? 0,
-      );
-
-      const newQuantity =
-        movementType === "IN"
-          ? previousQuantity + adjustmentAmount
-          : previousQuantity - adjustmentAmount;
-
-      if (newQuantity < 0) {
-        throw new Error(
-          `Insufficient stock. Only ${previousQuantity} item(s) are available.`,
+        transaction.set(
+          movementReference,
+          movementData,
         );
-      }
-
-      transaction.update(productReference, {
-        quantity: newQuantity,
-        updatedAt: serverTimestamp(),
-      });
-
-      transaction.set(movementReference, {
-        productId,
-        productName: product.name,
-        productSku: product.sku,
-        movementType,
-        quantity: adjustmentAmount,
-        previousQuantity,
-        newQuantity,
-        createdAt: serverTimestamp(),
-      });
-    });
-
-    console.log("Stock successfully updated:", {
-      productId,
-      movementType,
-      amount: adjustmentAmount,
-    });
+      },
+    );
   } catch (error) {
     console.error(
       "Unable to adjust product stock:",

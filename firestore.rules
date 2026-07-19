@@ -239,6 +239,99 @@ function adminCanManageTargetUser() {
       ]);
     }
 
+/*
+ * PRODUCT MASTER SOURCE RESERVATIONS
+ *
+ * Prevents the same product-master record from
+ * being added more than once.
+ */
+match /productMasterReservations/{sourceProductId} {
+
+  allow get: if hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+
+  /*
+   * The application checks one specific
+   * reservation document. Listing every
+   * reservation is unnecessary.
+   */
+  allow list: if false;
+
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN",
+      "INVENTORY_STAFF"
+    ])
+
+    && request.resource.data.keys().hasOnly([
+      "sourceProductId",
+      "productId",
+      "sku",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "sourceProductId",
+      "productId",
+      "sku",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.sourceProductId
+      == sourceProductId
+
+    && request.resource.data.sourceProductId
+      is string
+
+    && request.resource.data.sourceProductId.size()
+      >= 1
+
+    && request.resource.data.sourceProductId.size()
+      <= 100
+
+    && request.resource.data.sourceProductId.matches(
+      "^[A-Za-z0-9_-]+$"
+    )
+
+    && request.resource.data.productId
+      is string
+
+    && request.resource.data.productId.size()
+      >= 1
+
+    && request.resource.data.productId.size()
+      <= 128
+
+    && request.resource.data.sku
+      is string
+
+    && request.resource.data.sku.size()
+      >= 2
+
+    && request.resource.data.sku.size()
+      <= 50
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time;
+
+  /*
+   * Reservations are permanent.
+   */
+  allow update, delete: if false;
+}
+
+
+
+
+
     /*
      * BARCODE COUNTERS
      */
