@@ -98,17 +98,18 @@ export function subscribeToProducts(
 }
 
 /**
- * Creates a product and generates its barcode.
- */
-/**
  * Creates a product and generates its barcode
- * using the selected Firestore category.
+ * using active Firestore category and unit records.
  */
-export async function createProduct(
-  productData,
-) {
+export async function createProduct(productData) {
   const categoryCode = String(
     productData?.categoryCode ?? "",
+  )
+    .trim()
+    .toUpperCase();
+
+  const unitCode = String(
+    productData?.unitCode ?? "",
   )
     .trim()
     .toUpperCase();
@@ -123,10 +124,26 @@ export async function createProduct(
     );
   }
 
+  if (
+    !/^[A-Z0-9_]{1,50}$/.test(
+      unitCode,
+    )
+  ) {
+    throw new Error(
+      "A valid unit of measurement is required.",
+    );
+  }
+
   const categoryReference = doc(
     db,
     "categories",
     categoryCode,
+  );
+
+  const unitReference = doc(
+    db,
+    "units",
+    unitCode,
   );
 
   const productReference = doc(
@@ -134,24 +151,26 @@ export async function createProduct(
   );
 
   let generatedBarcode = "";
+
   let resolvedCategoryName = "";
   let resolvedBarcodePrefix = "";
+
+  let resolvedUnitName = "";
+  let resolvedUnitAbbreviation = "";
 
   try {
     await runTransaction(
       db,
       async (transaction) => {
         /*
-         * Read the category first.
+         * Read the selected category.
          */
         const categorySnapshot =
           await transaction.get(
             categoryReference,
           );
 
-        if (
-          !categorySnapshot.exists()
-        ) {
+        if (!categorySnapshot.exists()) {
           throw new Error(
             "The selected category no longer exists.",
           );
@@ -160,28 +179,21 @@ export async function createProduct(
         const category =
           categorySnapshot.data();
 
-        if (
-          category.status !== "ACTIVE"
-        ) {
+        if (category.status !== "ACTIVE") {
           throw new Error(
             `The category "${category.name}" is not active.`,
           );
         }
 
-        resolvedCategoryName =
-          String(
-            category.name ?? "",
-          ).trim();
+        resolvedCategoryName = String(
+          category.name ?? "",
+        ).trim();
 
-        resolvedBarcodePrefix =
-          String(
-            category.barcodePrefix ??
-              "",
-          ).trim();
+        resolvedBarcodePrefix = String(
+          category.barcodePrefix ?? "",
+        ).trim();
 
-        if (
-          !resolvedCategoryName
-        ) {
+        if (!resolvedCategoryName) {
           throw new Error(
             "The selected category does not have a valid name.",
           );
@@ -197,6 +209,55 @@ export async function createProduct(
           );
         }
 
+        /*
+         * Read the selected unit before performing
+         * any transaction writes.
+         */
+        const unitSnapshot =
+          await transaction.get(
+            unitReference,
+          );
+
+        if (!unitSnapshot.exists()) {
+          throw new Error(
+            "The selected unit of measurement no longer exists.",
+          );
+        }
+
+        const unit = unitSnapshot.data();
+
+        if (unit.status !== "ACTIVE") {
+          throw new Error(
+            `The unit "${unit.name}" is not active.`,
+          );
+        }
+
+        resolvedUnitName = String(
+          unit.name ?? "",
+        ).trim();
+
+        resolvedUnitAbbreviation = String(
+          unit.abbreviation ?? "",
+        )
+          .trim()
+          .toUpperCase();
+
+        if (!resolvedUnitName) {
+          throw new Error(
+            "The selected unit does not have a valid name.",
+          );
+        }
+
+        if (
+          !/^[A-Z0-9]{1,10}$/.test(
+            resolvedUnitAbbreviation,
+          )
+        ) {
+          throw new Error(
+            "The selected unit does not have a valid abbreviation.",
+          );
+        }
+
         const counterReference = doc(
           db,
           "barcodeCounters",
@@ -204,8 +265,8 @@ export async function createProduct(
         );
 
         /*
-         * All transaction reads happen before
-         * any writes.
+         * This is the final transaction read.
+         * All writes happen afterward.
          */
         const counterSnapshot =
           await transaction.get(
@@ -231,13 +292,9 @@ export async function createProduct(
           );
         }
 
-        const sequenceText =
-          String(
-            nextSequence,
-          ).padStart(
-            9,
-            "0",
-          );
+        const sequenceText = String(
+          nextSequence,
+        ).padStart(9, "0");
 
         const firstElevenDigits =
           resolvedBarcodePrefix +
@@ -277,22 +334,18 @@ export async function createProduct(
         transaction.set(
           productReference,
           {
-            name:
-              String(
-                productData.name,
-              ).trim(),
+            name: String(
+              productData.name,
+            ).trim(),
 
-            sku:
-              String(
-                productData.sku,
-              )
-                .trim()
-                .toUpperCase(),
+            sku: String(
+              productData.sku,
+            )
+              .trim()
+              .toUpperCase(),
 
             /*
-             * Keep the legacy category field so
-             * Inventory and Dashboard continue
-             * working without changes.
+             * Category snapshot fields.
              */
             category:
               resolvedCategoryName,
@@ -308,20 +361,35 @@ export async function createProduct(
             barcodePrefix:
               resolvedBarcodePrefix,
 
-            price:
-              Number(
-                productData.price,
-              ),
+            /*
+             * Unit snapshot fields.
+             *
+             * These allow product lists and reports
+             * to display the unit without making a
+             * separate Firestore request each time.
+             */
+            unitCode,
 
-            quantity:
-              Number(
-                productData.quantity,
-              ),
+            unitId:
+              unitCode,
 
-            reorderLevel:
-              Number(
-                productData.reorderLevel,
-              ),
+            unitName:
+              resolvedUnitName,
+
+            unitAbbreviation:
+              resolvedUnitAbbreviation,
+
+            price: Number(
+              productData.price,
+            ),
+
+            quantity: Number(
+              productData.quantity,
+            ),
+
+            reorderLevel: Number(
+              productData.reorderLevel,
+            ),
 
             barcode:
               generatedBarcode,
@@ -350,6 +418,12 @@ export async function createProduct(
 
         categoryCode,
 
+        unit:
+          resolvedUnitName,
+
+        unitAbbreviation:
+          resolvedUnitAbbreviation,
+
         barcode:
           generatedBarcode,
       },
@@ -366,6 +440,14 @@ export async function createProduct(
         resolvedCategoryName,
 
       categoryCode,
+
+      unitCode,
+
+      unitName:
+        resolvedUnitName,
+
+      unitAbbreviation:
+        resolvedUnitAbbreviation,
     };
   } catch (error) {
     console.error(
@@ -377,11 +459,201 @@ export async function createProduct(
   }
 }
 
+
 /**
- * Updates an existing product.
- *
- * The original barcode remains unchanged.
+ * Assigns an active Unit of Measurement to an
+ * existing product without changing its barcode,
+ * category, quantity, price, or other fields.
  */
+export async function assignProductUnit(
+  productId,
+  unitCode,
+) {
+  if (!productId) {
+    throw new Error(
+      "A product ID is required.",
+    );
+  }
+
+  const normalizedUnitCode = String(
+    unitCode ?? "",
+  )
+    .trim()
+    .toUpperCase();
+
+  if (
+    !/^[A-Z0-9_]{1,50}$/.test(
+      normalizedUnitCode,
+    )
+  ) {
+    throw new Error(
+      "A valid unit of measurement is required.",
+    );
+  }
+
+  const productReference = doc(
+    db,
+    "products",
+    productId,
+  );
+
+  const unitReference = doc(
+    db,
+    "units",
+    normalizedUnitCode,
+  );
+
+  let assignedUnit = null;
+
+  try {
+    await runTransaction(
+      db,
+      async (transaction) => {
+        /*
+         * Read the product first.
+         */
+        const productSnapshot =
+          await transaction.get(
+            productReference,
+          );
+
+        if (!productSnapshot.exists()) {
+          throw new Error(
+            "The selected product no longer exists.",
+          );
+        }
+
+        const product =
+          productSnapshot.data();
+
+        /*
+         * Read the Unit of Measurement before
+         * performing any transaction writes.
+         */
+        const unitSnapshot =
+          await transaction.get(
+            unitReference,
+          );
+
+        if (!unitSnapshot.exists()) {
+          throw new Error(
+            "The selected unit of measurement no longer exists.",
+          );
+        }
+
+        const unit =
+          unitSnapshot.data();
+
+        if (unit.status !== "ACTIVE") {
+          throw new Error(
+            `The unit "${unit.name}" is not active.`,
+          );
+        }
+
+        const resolvedUnitName = String(
+          unit.name ?? "",
+        ).trim();
+
+        const resolvedUnitAbbreviation =
+          String(
+            unit.abbreviation ?? "",
+          )
+            .trim()
+            .toUpperCase();
+
+        if (!resolvedUnitName) {
+          throw new Error(
+            "The selected unit does not have a valid name.",
+          );
+        }
+
+        if (
+          !/^[A-Z0-9]{1,10}$/.test(
+            resolvedUnitAbbreviation,
+          )
+        ) {
+          throw new Error(
+            "The selected unit does not have a valid abbreviation.",
+          );
+        }
+
+        const existingUnitCode = String(
+          product.unitCode ??
+            product.unitId ??
+            "",
+        )
+          .trim()
+          .toUpperCase();
+
+        /*
+         * Do not allow an existing product's unit
+         * to be replaced with a different unit.
+         *
+         * The same unit code may be used to complete
+         * partially migrated product records.
+         */
+        if (
+          existingUnitCode &&
+          existingUnitCode !==
+            normalizedUnitCode
+        ) {
+          throw new Error(
+            `This product is already assigned to unit ${existingUnitCode}.`,
+          );
+        }
+
+        transaction.update(
+          productReference,
+          {
+            unitCode:
+              normalizedUnitCode,
+
+            unitId:
+              normalizedUnitCode,
+
+            unitName:
+              resolvedUnitName,
+
+            unitAbbreviation:
+              resolvedUnitAbbreviation,
+
+            updatedAt:
+              serverTimestamp(),
+          },
+        );
+
+        assignedUnit = {
+          unitCode:
+            normalizedUnitCode,
+
+          unitName:
+            resolvedUnitName,
+
+          unitAbbreviation:
+            resolvedUnitAbbreviation,
+        };
+      },
+    );
+
+    console.log(
+      "Product unit successfully assigned:",
+      {
+        productId,
+        ...assignedUnit,
+      },
+    );
+
+    return assignedUnit;
+  } catch (error) {
+    console.error(
+      "Unable to assign product unit:",
+      error,
+    );
+
+    throw error;
+  }
+}
+
 export async function updateProduct(
   productId,
   productData,

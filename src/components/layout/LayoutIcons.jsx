@@ -34,6 +34,17 @@ export function CategoryIcon() {
   );
 }
 
+export function UnitIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 18 18 4l2 2L6 20H4v-2Z" />
+      <path d="m13 7 2 2" />
+      <path d="m10 10 2 2" />
+      <path d="m7 13 2 2" />
+    </svg>
+  );
+}
+
 export function AddProductIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">

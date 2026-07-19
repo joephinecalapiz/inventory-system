@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 
 import AppLayout from "./components/layout/AppLayout";
 import RequireRole from "./components/auth/RequireRole";
@@ -14,6 +14,7 @@ import Inventory from "./pages/Inventory";
 import Login from "./pages/Login";
 import RolePlaceholder from "./pages/RolePlaceholder";
 import Unauthorized from "./pages/Unauthorized";
+import Units from "./pages/Units";
 import UserManagement from "./pages/UserManagement";
 
 import { logoutAdmin, subscribeToAuthState } from "./services/authService";
@@ -221,6 +222,23 @@ function App() {
               ]}
             >
               <Categories currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/units"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <Units currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

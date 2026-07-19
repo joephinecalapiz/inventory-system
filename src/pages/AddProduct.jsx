@@ -1,22 +1,18 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import "../styles/App.css";
 
-import {
-  USER_ROLES,
-} from "../constants/roles";
+import { USER_ROLES } from "../constants/roles";
 
-import {
-  PRODUCT_OPTIONS,
-} from "../data/productOptions";
+import { PRODUCT_OPTIONS } from "../data/productOptions";
 
 import {
   subscribeToActiveCategories,
 } from "../services/categoryService";
+
+import {
+  subscribeToActiveUnits,
+} from "../services/unitService";
 
 import {
   createProduct,
@@ -28,19 +24,21 @@ const EMPTY_FORM = {
   sku: "",
   category: "",
   categoryCode: "",
+  unitCode: "",
   price: "",
   quantity: "",
   reorderLevel: "",
 };
 
-function AddProduct({
-  currentUserRole,
-}) {
+function AddProduct({ currentUserRole }) {
   const [form, setForm] = useState({
     ...EMPTY_FORM,
   });
 
   const [activeCategories, setActiveCategories] =
+    useState([]);
+
+  const [activeUnits, setActiveUnits] =
     useState([]);
 
   const [
@@ -49,8 +47,18 @@ function AddProduct({
   ] = useState(true);
 
   const [
+    isLoadingUnits,
+    setIsLoadingUnits,
+  ] = useState(true);
+
+  const [
     categoryLoadError,
     setCategoryLoadError,
+  ] = useState("");
+
+  const [
+    unitLoadError,
+    setUnitLoadError,
   ] = useState("");
 
   const [isSubmitting, setIsSubmitting] =
@@ -94,29 +102,74 @@ function AddProduct({
     return unsubscribe;
   }, []);
 
-  const activeCategoryNames =
-    useMemo(() => {
-      return new Set(
-        activeCategories.map(
-          (category) =>
-            category.name,
-        ),
-      );
-    }, [activeCategories]);
+  useEffect(() => {
+    const unsubscribe =
+      subscribeToActiveUnits(
+        (units) => {
+          setActiveUnits(units);
+          setIsLoadingUnits(false);
+          setUnitLoadError("");
 
-  /*
-   * Products belonging to inactive or missing
-   * categories are not shown in the dropdown.
-   */
-  const availableProductOptions =
-    useMemo(() => {
-      return PRODUCT_OPTIONS.filter(
-        (product) =>
-          activeCategoryNames.has(
-            product.category,
-          ),
+          /*
+           * Clear a selected unit if an administrator
+           * deactivates it while this form is open.
+           */
+          setForm((currentForm) => {
+            if (!currentForm.unitCode) {
+              return currentForm;
+            }
+
+            const unitStillActive = units.some(
+              (unit) =>
+                (unit.code ?? unit.id) ===
+                currentForm.unitCode,
+            );
+
+            if (unitStillActive) {
+              return currentForm;
+            }
+
+            return {
+              ...currentForm,
+              unitCode: "",
+            };
+          });
+        },
+
+        (error) => {
+          console.error(
+            "Unable to load active units:",
+            error,
+          );
+
+          setUnitLoadError(
+            error?.message ||
+              "Unable to load active units of measurement.",
+          );
+
+          setIsLoadingUnits(false);
+        },
       );
-    }, [activeCategoryNames]);
+
+    return unsubscribe;
+  }, []);
+
+  const activeCategoryNames = useMemo(() => {
+    return new Set(
+      activeCategories.map(
+        (category) => category.name,
+      ),
+    );
+  }, [activeCategories]);
+
+  const availableProductOptions = useMemo(() => {
+    return PRODUCT_OPTIONS.filter(
+      (product) =>
+        activeCategoryNames.has(
+          product.category,
+        ),
+    );
+  }, [activeCategoryNames]);
 
   function clearMessage() {
     if (message.text) {
@@ -134,14 +187,14 @@ function AddProduct({
     const selectedProduct =
       availableProductOptions.find(
         (product) =>
-          product.id ===
-          selectedProductId,
+          product.id === selectedProductId,
       );
 
     if (!selectedProduct) {
-      setForm({
+      setForm((currentForm) => ({
         ...EMPTY_FORM,
-      });
+        unitCode: currentForm.unitCode,
+      }));
 
       clearMessage();
       return;
@@ -155,9 +208,10 @@ function AddProduct({
       );
 
     if (!selectedCategory) {
-      setForm({
+      setForm((currentForm) => ({
         ...EMPTY_FORM,
-      });
+        unitCode: currentForm.unitCode,
+      }));
 
       setMessage({
         type: "error",
@@ -215,10 +269,8 @@ function AddProduct({
   }
 
   function handleChange(event) {
-    const {
-      name,
-      value,
-    } = event.target;
+    const { name, value } =
+      event.target;
 
     setForm((currentForm) => ({
       ...currentForm,
@@ -237,6 +289,20 @@ function AddProduct({
       return "The selected product does not have a valid Firestore category.";
     }
 
+    if (!form.unitCode) {
+      return "Please select a unit of measurement.";
+    }
+
+    const selectedUnit = activeUnits.find(
+      (unit) =>
+        (unit.code ?? unit.id) ===
+        form.unitCode,
+    );
+
+    if (!selectedUnit) {
+      return "The selected unit of measurement is no longer active.";
+    }
+
     if (
       !form.name ||
       !form.sku ||
@@ -245,8 +311,7 @@ function AddProduct({
       return "The selected product is missing master-list information.";
     }
 
-    const price =
-      Number(form.price);
+    const price = Number(form.price);
 
     if (
       form.price === "" ||
@@ -262,21 +327,19 @@ function AddProduct({
       return "Please enter the quantity and reorder level.";
     }
 
-    const quantity =
-      Number(form.quantity);
+    const quantity = Number(
+      form.quantity,
+    );
 
-    const reorderLevel =
-      Number(form.reorderLevel);
+    const reorderLevel = Number(
+      form.reorderLevel,
+    );
 
     if (!Number.isInteger(quantity)) {
       return "Quantity must be a whole number.";
     }
 
-    if (
-      !Number.isInteger(
-        reorderLevel,
-      )
-    ) {
+    if (!Number.isInteger(reorderLevel)) {
       return "Reorder level must be a whole number.";
     }
 
@@ -316,19 +379,22 @@ function AddProduct({
     }
 
     const productData = {
-      name:
-        form.name.trim(),
+      name: form.name.trim(),
 
-      sku:
-        form.sku
-          .trim()
-          .toUpperCase(),
+      sku: form.sku
+        .trim()
+        .toUpperCase(),
 
       category:
         form.category.trim(),
 
       categoryCode:
         form.categoryCode
+          .trim()
+          .toUpperCase(),
+
+      unitCode:
+        form.unitCode
           .trim()
           .toUpperCase(),
 
@@ -350,10 +416,9 @@ function AddProduct({
         text: "",
       });
 
-      const result =
-        await createProduct(
-          productData,
-        );
+      const result = await createProduct(
+        productData,
+      );
 
       setForm({
         ...EMPTY_FORM,
@@ -361,7 +426,7 @@ function AddProduct({
 
       setMessage({
         type: "success",
-        text: `${productData.name} was added successfully. Barcode ${result.barcode} was generated using the ${productData.category} category prefix.`,
+        text: `${productData.name} was added successfully using ${result.unitName} (${result.unitAbbreviation}). Barcode ${result.barcode} was generated using the ${result.category} category prefix.`,
       });
     } catch (error) {
       console.error(
@@ -404,6 +469,14 @@ function AddProduct({
     );
   }
 
+  const isLoadingMasterData =
+    isLoadingCategories ||
+    isLoadingUnits;
+
+  const hasMasterDataError =
+    Boolean(categoryLoadError) ||
+    Boolean(unitLoadError);
+
   return (
     <main className="add-product-page">
       <header className="add-product-heading">
@@ -417,8 +490,9 @@ function AddProduct({
           </h2>
 
           <span>
-            Select a product whose category is
-            currently active in Firestore.
+            Select a product, category-linked
+            barcode, and active unit of
+            measurement.
           </span>
         </div>
       </header>
@@ -440,6 +514,15 @@ function AddProduct({
             role="alert"
           >
             {categoryLoadError}
+          </div>
+        )}
+
+        {unitLoadError && (
+          <div
+            className="add-product-message add-product-message-error"
+            role="alert"
+          >
+            {unitLoadError}
           </div>
         )}
 
@@ -537,6 +620,43 @@ function AddProduct({
           </label>
 
           <label>
+            Unit of measurement
+
+            <select
+              name="unitCode"
+              value={form.unitCode}
+              onChange={handleChange}
+              disabled={
+                isSubmitting ||
+                isLoadingUnits ||
+                Boolean(unitLoadError)
+              }
+              required
+            >
+              <option value="">
+                {isLoadingUnits
+                  ? "Loading active units..."
+                  : activeUnits.length === 0
+                    ? "No active units available"
+                    : "Select a unit"}
+              </option>
+
+              {activeUnits.map((unit) => (
+                <option
+                  key={unit.id}
+                  value={
+                    unit.code ??
+                    unit.id
+                  }
+                >
+                  {unit.name} (
+                  {unit.abbreviation})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
             Unit price
 
             <input
@@ -549,13 +669,13 @@ function AddProduct({
 
           <div className="add-product-barcode-note">
             <strong>
-              Firestore category barcode
+              Firestore master data
             </strong>
 
             <span>
-              The system will read the permanent
-              barcode prefix from the selected
-              Firestore category.
+              The system verifies both the
+              selected category and unit before
+              saving the product.
             </span>
           </div>
 
@@ -601,9 +721,11 @@ function AddProduct({
               className="add-product-submit"
               disabled={
                 isSubmitting ||
-                isLoadingCategories ||
+                isLoadingMasterData ||
+                hasMasterDataError ||
                 !form.selectedProductId ||
                 !form.categoryCode ||
+                !form.unitCode ||
                 form.price === ""
               }
             >

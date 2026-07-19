@@ -488,6 +488,221 @@ match /categoryBarcodePrefixes/{barcodePrefix} {
   allow update, delete: if false;
 }
 
+/*
+ * UNIT OF MEASUREMENT MASTER DATA
+ */
+match /units/{unitId} {
+
+  /*
+   * Inventory Staff and Auditor may view units
+   * but cannot manage them.
+   */
+  allow get, list: if hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+
+  /*
+   * Only Superadmin and Admin may create units.
+   */
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+
+    && request.resource.data.keys().hasOnly([
+      "name",
+      "code",
+      "abbreviation",
+      "description",
+      "status",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "name",
+      "code",
+      "abbreviation",
+      "description",
+      "status",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.name is string
+    && request.resource.data.name.size() >= 2
+    && request.resource.data.name.size() <= 100
+
+    && request.resource.data.code is string
+    && request.resource.data.code == unitId
+    && request.resource.data.code.size() >= 2
+    && request.resource.data.code.size() <= 50
+    && request.resource.data.code.matches(
+      "^[A-Z0-9_]+$"
+    )
+
+    && request.resource.data.abbreviation is string
+    && request.resource.data.abbreviation.matches(
+      "^[A-Z0-9]{1,10}$"
+    )
+
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 500
+
+    && request.resource.data.status in [
+      "ACTIVE",
+      "INACTIVE"
+    ]
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * The unit code and abbreviation remain
+   * permanent after the unit is created.
+   */
+  allow update: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "name",
+        "description",
+        "status",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.code
+      == resource.data.code
+
+    && request.resource.data.abbreviation
+      == resource.data.abbreviation
+
+    && request.resource.data.createdBy
+      == resource.data.createdBy
+
+    && request.resource.data.createdAt
+      == resource.data.createdAt
+
+    && request.resource.data.name is string
+    && request.resource.data.name.size() >= 2
+    && request.resource.data.name.size() <= 100
+
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 500
+
+    && request.resource.data.status in [
+      "ACTIVE",
+      "INACTIVE"
+    ]
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * Units should be deactivated instead of
+   * permanently deleted.
+   */
+  allow delete: if false;
+}
+
+
+/*
+ * UNIT ABBREVIATION RESERVATIONS
+ *
+ * This collection prevents duplicate unit
+ * abbreviations such as two units using PCS.
+ */
+match /unitAbbreviations/{unitAbbreviation} {
+
+  /*
+   * The create-unit transaction checks whether
+   * the abbreviation is already reserved.
+   */
+  allow get: if hasRole([
+    "SUPERADMIN",
+    "ADMIN"
+  ]);
+
+  allow list: if false;
+
+  /*
+   * Reserve an abbreviation when a unit is
+   * created.
+   */
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+
+    && request.resource.data.keys().hasOnly([
+      "abbreviation",
+      "unitCode",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "abbreviation",
+      "unitCode",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.abbreviation
+      == unitAbbreviation
+
+    && request.resource.data.abbreviation
+      is string
+
+    && request.resource.data.abbreviation.matches(
+      "^[A-Z0-9]{1,10}$"
+    )
+
+    && request.resource.data.unitCode
+      is string
+
+    && request.resource.data.unitCode.matches(
+      "^[A-Z0-9_]+$"
+    )
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time;
+
+  /*
+   * Abbreviation reservations remain permanent
+   * so previously assigned abbreviations cannot
+   * be reused.
+   */
+  allow update, delete: if false;
+}
 
 
     /*

@@ -5,6 +5,8 @@ const PAGE_TITLES = {
   "/dashboard": "Dashboard",
   "/inventory": "Inventory List",
   "/categories": "Category Management",
+  "/units": "Units of Measurement",
+
   "/add-products": "New Products",
   "/users": "User Management",
   "/cashier": "Cashier Portal",
