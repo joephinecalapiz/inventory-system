@@ -8,9 +8,12 @@ import {
   isValidProductStatus,
 } from "../constants/products";
 
+import { PRODUCT_OPTIONS } from "../data/productOptions";
+
 import { USER_ROLES } from "../constants/roles";
 
 import {
+  assignProductSourceIdentity,
   inspectProductSafeMigration,
   migrateLegacyProductSafeFields,
   subscribeToProducts,
@@ -51,6 +54,62 @@ function getProductSellingPrice(product) {
   return Number(product.sellingPrice ?? product.price ?? 0);
 }
 
+function normalizeMasterComparison(value) {
+  return String(value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, " ");
+}
+
+function getSourceMatchScore(legacyProduct, masterProduct) {
+  let score = 0;
+
+  const legacyName = normalizeMasterComparison(legacyProduct.name);
+
+  const masterName = normalizeMasterComparison(masterProduct.name);
+
+  const legacySku = normalizeMasterComparison(legacyProduct.sku);
+
+  const masterSku = normalizeMasterComparison(masterProduct.sku);
+
+  const legacyCategory = normalizeMasterComparison(legacyProduct.category);
+
+  const masterCategory = normalizeMasterComparison(masterProduct.category);
+
+  if (legacyName && legacyName === masterName) {
+    score += 100;
+  }
+
+  if (legacySku && legacySku === masterSku) {
+    score += 60;
+  }
+
+  if (legacyCategory && legacyCategory === masterCategory) {
+    score += 30;
+  }
+
+  const legacyPrice = Number(legacyProduct.sellingPrice ?? legacyProduct.price);
+
+  const masterPrice = Number(masterProduct.price);
+
+  if (
+    Number.isFinite(legacyPrice) &&
+    Number.isFinite(masterPrice) &&
+    legacyPrice === masterPrice
+  ) {
+    score += 10;
+  }
+
+  return score;
+}
+
+function valuesMatch(firstValue, secondValue) {
+  return (
+    normalizeMasterComparison(firstValue) ===
+    normalizeMasterComparison(secondValue)
+  );
+}
+
 function Products({ currentUserRole }) {
   const canManageProducts = [
     USER_ROLES.SUPERADMIN,
@@ -66,6 +125,13 @@ function Products({ currentUserRole }) {
   const isReadOnly = currentUserRole === USER_ROLES.AUDITOR;
 
   const [products, setProducts] = useState([]);
+
+  const [sourceSearchByProduct, setSourceSearchByProduct] = useState({});
+
+  const [sourceSelectionByProduct, setSourceSelectionByProduct] = useState({});
+
+  const [assigningSourceProductId, setAssigningSourceProductId] =
+    useState(null);
 
   const [editingProductId, setEditingProductId] = useState(null);
 
@@ -169,6 +235,84 @@ function Products({ currentUserRole }) {
       missingSourceCount,
     };
   }, [products]);
+
+  const legacySourceProducts = useMemo(() => {
+    return products.filter(
+      (product) => !String(product.sourceProductId ?? "").trim(),
+    );
+  }, [products]);
+
+  const usedSourceProductIds = useMemo(() => {
+    return new Set(
+      products
+        .map((product) => String(product.sourceProductId ?? "").trim())
+        .filter(Boolean),
+    );
+  }, [products]);
+
+  const availableSourceOptions = useMemo(() => {
+    return PRODUCT_OPTIONS.filter(
+      (masterProduct) => !usedSourceProductIds.has(masterProduct.id),
+    );
+  }, [usedSourceProductIds]);
+
+  const sourceCandidatesByProduct = useMemo(() => {
+    const result = {};
+
+    for (const legacyProduct of legacySourceProducts) {
+      const searchTerm = String(sourceSearchByProduct[legacyProduct.id] ?? "")
+        .trim()
+        .toLowerCase();
+
+      const candidates = availableSourceOptions
+        .filter((masterProduct) => {
+          if (!searchTerm) {
+            return true;
+          }
+
+          const searchableText = [
+            masterProduct.name,
+            masterProduct.sku,
+            masterProduct.category,
+            masterProduct.id,
+            masterProduct.price,
+          ]
+            .map((value) => String(value ?? "").toLowerCase())
+            .join(" ");
+
+          return searchableText.includes(searchTerm);
+        })
+        .map((masterProduct) => ({
+          product: masterProduct,
+
+          score: getSourceMatchScore(legacyProduct, masterProduct),
+        }))
+        .sort((firstCandidate, secondCandidate) => {
+          const scoreDifference = secondCandidate.score - firstCandidate.score;
+
+          if (scoreDifference !== 0) {
+            return scoreDifference;
+          }
+
+          const categoryComparison =
+            firstCandidate.product.category.localeCompare(
+              secondCandidate.product.category,
+            );
+
+          if (categoryComparison !== 0) {
+            return categoryComparison;
+          }
+
+          return firstCandidate.product.name.localeCompare(
+            secondCandidate.product.name,
+          );
+        });
+
+      result[legacyProduct.id] = candidates;
+    }
+
+    return result;
+  }, [legacySourceProducts, availableSourceOptions, sourceSearchByProduct]);
 
   const categories = useMemo(() => {
     return [
@@ -513,6 +657,190 @@ function Products({ currentUserRole }) {
     }
   }
 
+  function handleSourceSearchChange(productId, value) {
+    setSourceSearchByProduct((currentSearches) => ({
+      ...currentSearches,
+      [productId]: value,
+    }));
+  }
+
+  async function handleAssignSourceIdentity(legacyProduct) {
+    if (!canMigrateLegacyProducts) {
+      setMessage({
+        type: "error",
+        text: "Only a Superadmin or Admin can assign product source identities.",
+      });
+
+      return;
+    }
+
+    const selectedSourceProductId = String(
+      sourceSelectionByProduct[legacyProduct.id] ?? "",
+    ).trim();
+
+    if (!selectedSourceProductId) {
+      setMessage({
+        type: "error",
+        text: `Select the correct master record for ${legacyProduct.name}.`,
+      });
+
+      return;
+    }
+
+    const selectedMasterProduct = PRODUCT_OPTIONS.find(
+      (masterProduct) => masterProduct.id === selectedSourceProductId,
+    );
+
+    if (!selectedMasterProduct) {
+      setMessage({
+        type: "error",
+        text: "The selected product master record could not be found.",
+      });
+
+      return;
+    }
+
+    if (usedSourceProductIds.has(selectedSourceProductId)) {
+      setMessage({
+        type: "error",
+        text: "That source product identity has already been assigned.",
+      });
+
+      return;
+    }
+
+    const skuMatches = valuesMatch(
+      legacyProduct.sku,
+      selectedMasterProduct.sku,
+    );
+
+    const nameMatches = valuesMatch(
+      legacyProduct.name,
+      selectedMasterProduct.name,
+    );
+
+    const categoryMatches = valuesMatch(
+      legacyProduct.category,
+      selectedMasterProduct.category,
+    );
+
+    const shouldAssign = window.confirm(
+      [
+        "Assign this permanent source identity?",
+        "",
+        `Legacy product: ${legacyProduct.name}`,
+        `Legacy SKU: ${legacyProduct.sku}`,
+        "",
+        `Master product: ${selectedMasterProduct.name}`,
+        `Master SKU: ${selectedMasterProduct.sku}`,
+        `Category: ${selectedMasterProduct.category}`,
+        `Source ID: ${selectedMasterProduct.id}`,
+        "",
+        "This assignment cannot be changed later.",
+      ].join("\n"),
+    );
+
+    if (!shouldAssign) {
+      return;
+    }
+
+    /*
+     * Require an additional warning when the
+     * selected row is not an exact match.
+     */
+    if (!skuMatches || !nameMatches || !categoryMatches) {
+      const mismatches = [];
+
+      if (!nameMatches) {
+        mismatches.push("product name");
+      }
+
+      if (!skuMatches) {
+        mismatches.push("SKU");
+      }
+
+      if (!categoryMatches) {
+        mismatches.push("category");
+      }
+
+      const shouldContinue = window.confirm(
+        [
+          "Warning: The selected master record does not exactly match the legacy product.",
+          "",
+          `Different field(s): ${mismatches.join(", ")}`,
+          "",
+          "Continue only when you have manually confirmed that this is the correct source row.",
+        ].join("\n"),
+      );
+
+      if (!shouldContinue) {
+        return;
+      }
+    }
+
+    try {
+      setAssigningSourceProductId(legacyProduct.id);
+
+      setMessage({
+        type: "",
+        text: "",
+      });
+
+      await assignProductSourceIdentity(
+        legacyProduct.id,
+        selectedSourceProductId,
+      );
+
+      setSourceSearchByProduct((currentSearches) => {
+        const nextSearches = {
+          ...currentSearches,
+        };
+
+        delete nextSearches[legacyProduct.id];
+
+        return nextSearches;
+      });
+
+      setSourceSelectionByProduct((currentSelections) => {
+        const nextSelections = {
+          ...currentSelections,
+        };
+
+        delete nextSelections[legacyProduct.id];
+
+        return nextSelections;
+      });
+
+      setMessage({
+        type: "success",
+        text: `${legacyProduct.name} was linked to ${selectedMasterProduct.id}.`,
+      });
+    } catch (error) {
+      console.error("Unable to assign source identity:", error);
+
+      setMessage({
+        type: "error",
+        text: error?.message || "Unable to assign the product source identity.",
+      });
+    } finally {
+      setAssigningSourceProductId(null);
+    }
+  }
+
+  function handleSourceSelectionChange(productId, value) {
+    setSourceSelectionByProduct((currentSelections) => ({
+      ...currentSelections,
+      [productId]: value,
+    }));
+
+    if (message.type === "error") {
+      setMessage({
+        type: "",
+        text: "",
+      });
+    }
+  }
+
   async function handleSafeMigration() {
     if (!canMigrateLegacyProducts) {
       setMessage({
@@ -694,16 +1022,236 @@ function Products({ currentUserRole }) {
               <strong>{migrationSummary.missingSourceCount}</strong>
             </article>
           </div>
-
           <div className="products-migration-note">
-            <strong>Safe migration only</strong>
+            <strong>Manual verification required</strong>
 
             <span>
               Product source identities are not assigned automatically because
-              multiple master-list records may use the same SKU. Manual source
-              assignment will be completed in Phase 2C-6B.
+              multiple master-list records may use the same SKU. Use the manual
+              source assignment section below to select the exact Product Master
+              record.
             </span>
           </div>
+
+          {migrationSummary.missingSourceCount > 0 && (
+            <div className="products-source-assignment">
+              <div className="products-source-assignment-heading">
+                <div>
+                  <p className="section-label">Manual source assignment</p>
+
+                  <h4>Link Legacy Products</h4>
+
+                  <span>
+                    Search the original Product Master list and select the exact
+                    source row for every legacy product.
+                  </span>
+                </div>
+
+                <span className="products-source-remaining">
+                  {migrationSummary.missingSourceCount} remaining
+                </span>
+              </div>
+
+              <div className="products-source-list">
+                {legacySourceProducts.map((legacyProduct) => {
+                  const candidates =
+                    sourceCandidatesByProduct[legacyProduct.id] ?? [];
+
+                  const selectedSourceId =
+                    sourceSelectionByProduct[legacyProduct.id] ?? "";
+
+                  const selectedMasterProduct = PRODUCT_OPTIONS.find(
+                    (masterProduct) => masterProduct.id === selectedSourceId,
+                  );
+
+                  const isAssigning =
+                    assigningSourceProductId === legacyProduct.id;
+
+                  const nameMatches = selectedMasterProduct
+                    ? valuesMatch(
+                        legacyProduct.name,
+                        selectedMasterProduct.name,
+                      )
+                    : false;
+
+                  const skuMatches = selectedMasterProduct
+                    ? valuesMatch(legacyProduct.sku, selectedMasterProduct.sku)
+                    : false;
+
+                  const categoryMatches = selectedMasterProduct
+                    ? valuesMatch(
+                        legacyProduct.category,
+                        selectedMasterProduct.category,
+                      )
+                    : false;
+
+                  return (
+                    <article
+                      key={legacyProduct.id}
+                      className="products-source-card"
+                    >
+                      <div className="products-source-legacy">
+                        <span>Legacy product</span>
+
+                        <strong>{legacyProduct.name}</strong>
+
+                        <dl>
+                          <div>
+                            <dt>SKU</dt>
+
+                            <dd>{legacyProduct.sku || "Not available"}</dd>
+                          </div>
+
+                          <div>
+                            <dt>Category</dt>
+
+                            <dd>{legacyProduct.category || "Not available"}</dd>
+                          </div>
+
+                          <div>
+                            <dt>Selling price</dt>
+
+                            <dd>
+                              {formatCurrency(
+                                legacyProduct.sellingPrice ??
+                                  legacyProduct.price ??
+                                  0,
+                              )}
+                            </dd>
+                          </div>
+                        </dl>
+                      </div>
+
+                      <div className="products-source-controls">
+                        <label>
+                          Search master list
+                          <input
+                            type="search"
+                            value={
+                              sourceSearchByProduct[legacyProduct.id] ?? ""
+                            }
+                            onChange={(event) =>
+                              handleSourceSearchChange(
+                                legacyProduct.id,
+                                event.target.value,
+                              )
+                            }
+                            placeholder="Search name, SKU, category, source ID, or price"
+                            disabled={assigningSourceProductId !== null}
+                          />
+                        </label>
+
+                        <label>
+                          Product master record
+                          <select
+                            value={selectedSourceId}
+                            onChange={(event) =>
+                              handleSourceSelectionChange(
+                                legacyProduct.id,
+                                event.target.value,
+                              )
+                            }
+                            disabled={assigningSourceProductId !== null}
+                          >
+                            <option value="">
+                              {candidates.length === 0
+                                ? "No matching unused records"
+                                : `Select from ${candidates.length} result(s)`}
+                            </option>
+
+                            {candidates.map((candidate) => (
+                              <option
+                                key={candidate.product.id}
+                                value={candidate.product.id}
+                              >
+                                {candidate.score >= 100 ? "Suggested — " : ""}
+                                {candidate.product.name} —{" "}
+                                {candidate.product.sku} —{" "}
+                                {candidate.product.category} —{" "}
+                                {candidate.product.id}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+
+                        {selectedMasterProduct && (
+                          <div className="products-source-preview">
+                            <div>
+                              <span>Selected source</span>
+
+                              <strong>{selectedMasterProduct.name}</strong>
+
+                              <small>{selectedMasterProduct.id}</small>
+                            </div>
+
+                            <div className="products-source-checks">
+                              <span
+                                className={
+                                  nameMatches
+                                    ? "products-source-match"
+                                    : "products-source-mismatch"
+                                }
+                              >
+                                Name {nameMatches ? "matches" : "differs"}
+                              </span>
+
+                              <span
+                                className={
+                                  skuMatches
+                                    ? "products-source-match"
+                                    : "products-source-mismatch"
+                                }
+                              >
+                                SKU {skuMatches ? "matches" : "differs"}
+                              </span>
+
+                              <span
+                                className={
+                                  categoryMatches
+                                    ? "products-source-match"
+                                    : "products-source-mismatch"
+                                }
+                              >
+                                Category{" "}
+                                {categoryMatches ? "matches" : "differs"}
+                              </span>
+                            </div>
+                          </div>
+                        )}
+
+                        <button
+                          type="button"
+                          className="products-source-assign-button"
+                          onClick={() =>
+                            handleAssignSourceIdentity(legacyProduct)
+                          }
+                          disabled={
+                            !selectedSourceId ||
+                            assigningSourceProductId !== null
+                          }
+                        >
+                          {isAssigning
+                            ? "Assigning..."
+                            : "Assign Source Identity"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {migrationSummary.missingSourceCount === 0 && (
+            <div className="products-source-complete">
+              <strong>Source identity migration complete</strong>
+
+              <span>
+                Every current product is linked to an exact Product Master
+                source record.
+              </span>
+            </div>
+          )}
 
           {migrationReport?.errors?.length > 0 && (
             <div className="products-migration-errors">

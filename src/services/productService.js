@@ -941,15 +941,21 @@ export async function assignProductUnit(productId, unitCode) {
 }
 
 /**
- * Assigns a permanent source-row identity to an
- * older product and creates its reservation.
+ * Assigns a permanent source-row identity to a
+ * migrated legacy product and creates its reservation.
+ *
+ * Only Superadmin and Admin may perform this action.
  */
 export async function assignProductSourceIdentity(productId, sourceProductId) {
   if (!productId) {
     throw new Error("A product ID is required.");
   }
 
-  const currentUserId = getCurrentUserId();
+  /*
+   * Verifies that the signed-in account is an
+   * active Superadmin or Admin and returns its UID.
+   */
+  const { currentUserId } = await getCurrentMigrationAdmin();
 
   const normalizedSourceProductId =
     prepareOptionalSourceProductId(sourceProductId);
@@ -969,85 +975,100 @@ export async function assignProductSourceIdentity(productId, sourceProductId) {
   let result = null;
 
   try {
-    await runTransaction(
-      db,
+    await runTransaction(db, async (transaction) => {
+      const productSnapshot = await transaction.get(productReference);
 
-      async (transaction) => {
-        const productSnapshot = await transaction.get(productReference);
+      if (!productSnapshot.exists()) {
+        throw new Error("The selected product no longer exists.");
+      }
 
-        if (!productSnapshot.exists()) {
-          throw new Error("The selected product no longer exists.");
-        }
+      const reservationSnapshot = await transaction.get(reservationReference);
 
-        const reservationSnapshot = await transaction.get(reservationReference);
+      const product = productSnapshot.data();
 
-        const product = productSnapshot.data();
+      const existingSourceProductId = String(
+        product.sourceProductId ?? "",
+      ).trim();
 
-        const existingSourceProductId = String(
-          product.sourceProductId ?? "",
-        ).trim();
+      if (
+        existingSourceProductId &&
+        existingSourceProductId !== normalizedSourceProductId
+      ) {
+        throw new Error(
+          `This product is already linked to ${existingSourceProductId}.`,
+        );
+      }
 
-        if (
-          existingSourceProductId &&
-          existingSourceProductId !== normalizedSourceProductId
-        ) {
-          throw new Error(
-            `This product is already linked to ${existingSourceProductId}.`,
-          );
-        }
+      /*
+       * Require safe-field migration before
+       * assigning the permanent source identity.
+       */
+      const migrationInspection = inspectProductSafeMigration({
+        id: productId,
+        ...product,
+      });
 
-        if (
-          reservationSnapshot.exists() &&
-          reservationSnapshot.data().productId !== productId
-        ) {
-          throw new Error(
-            "This product master record is already linked to another product.",
-          );
-        }
+      if (migrationInspection.needsMigration) {
+        throw new Error(
+          "Migrate this product's safe legacy fields before assigning its source identity.",
+        );
+      }
 
-        const sku = prepareProductSku(product.sku);
+      if (
+        reservationSnapshot.exists() &&
+        reservationSnapshot.data().productId !== productId
+      ) {
+        throw new Error(
+          "This product master record is already linked to another product.",
+        );
+      }
 
-        if (!existingSourceProductId) {
-          transaction.update(
-            productReference,
+      const sku = prepareProductSku(product.sku);
 
-            {
-              sourceProductId: normalizedSourceProductId,
-
-              updatedBy: currentUserId,
-
-              updatedAt: serverTimestamp(),
-            },
-          );
-        }
-
-        if (!reservationSnapshot.exists()) {
-          transaction.set(
-            reservationReference,
-
-            {
-              sourceProductId: normalizedSourceProductId,
-
-              productId,
-
-              sku,
-
-              createdBy: currentUserId,
-
-              createdAt: serverTimestamp(),
-            },
-          );
-        }
-
-        result = {
-          productId,
-
+      /*
+       * Permanently link the product to the
+       * selected Product Master source row.
+       */
+      if (!existingSourceProductId) {
+        transaction.update(productReference, {
           sourceProductId: normalizedSourceProductId,
 
+          sourceIdentityAssignedBy: currentUserId,
+
+          sourceIdentityAssignedAt: serverTimestamp(),
+
+          updatedBy: currentUserId,
+
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      /*
+       * Permanently reserve the source row so it
+       * cannot be assigned or added again.
+       */
+      if (!reservationSnapshot.exists()) {
+        transaction.set(reservationReference, {
+          sourceProductId: normalizedSourceProductId,
+
+          productId,
+
           sku,
-        };
-      },
-    );
+
+          createdBy: currentUserId,
+
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      result = {
+        productId,
+
+        sourceProductId: normalizedSourceProductId,
+
+        sku,
+      };
+    });
 
     return result;
   } catch (error) {
