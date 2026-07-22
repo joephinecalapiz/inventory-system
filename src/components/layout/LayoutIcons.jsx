@@ -136,3 +136,30 @@ export function StockInIcon() {
     </svg>
   );
 }
+
+export function SupplierIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 20V7h16v13" />
+      <path d="M7 7V4h10v3" />
+      <path d="M8 11h2" />
+      <path d="M14 11h2" />
+      <path d="M8 15h2" />
+      <path d="M14 15h2" />
+      <path d="M3 20h18" />
+    </svg>
+  );
+}
+
+
+export function PurchaseOrderIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 3h9l4 4v14H6V3Z" />
+      <path d="M15 3v5h4" />
+      <path d="M9 12h7" />
+      <path d="M9 16h7" />
+      <path d="M9 8h2" />
+    </svg>
+  );
+}

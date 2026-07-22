@@ -11,7 +11,9 @@ import AddProduct from "./pages/AddProduct";
 import Categories from "./pages/Categories";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
+import PurchaseOrders from "./pages/PurchaseOrders";
 import StockIn from "./pages/StockIn";
+import Suppliers from "./pages/Suppliers";
 import Login from "./pages/Login";
 import Products from "./pages/Products";
 
@@ -225,6 +227,40 @@ function App() {
               ]}
             >
               <StockIn currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/suppliers"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <Suppliers currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/purchase-orders"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <PurchaseOrders currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

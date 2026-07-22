@@ -12,9 +12,11 @@ import {
   DashboardIcon,
   InventoryIcon,
   LogoutIcon,
+  PurchaseOrderIcon,
   ProductsIcon,
   ReportsIcon,
   StockInIcon,
+  SupplierIcon,
   UnitIcon,
   UserIcon,
 } from "./LayoutIcons";
@@ -44,6 +46,30 @@ const NAVIGATION_ITEMS = [
     label: "Stock In",
     path: "/stock-in",
     icon: StockInIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Suppliers",
+    path: "/suppliers",
+    icon: SupplierIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Purchase Orders",
+    path: "/purchase-orders",
+    icon: PurchaseOrderIcon,
     allowedRoles: [
       USER_ROLES.SUPERADMIN,
       USER_ROLES.ADMIN,

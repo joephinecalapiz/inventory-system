@@ -217,7 +217,7 @@ function adminCanManageTargetUser() {
      
      
      
-    match /products/{productId} {
+    match /products/{productId} {    
 
       allow read: if hasRole([
         "SUPERADMIN",
@@ -796,6 +796,1168 @@ match /unitAbbreviations/{unitAbbreviation} {
    */
   allow update, delete: if false;
 }
+
+
+/*
+ * Supplier access helpers.
+ */
+function isSupplierManager() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN"
+  ]);
+}
+
+function canReadSuppliers() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+}
+
+function isValidSupplierStatus(status) {
+  return status in [
+    "ACTIVE",
+    "INACTIVE"
+  ];
+}
+
+function isValidSupplierPaymentTerm(paymentTerm) {
+  return paymentTerm in [
+    "CASH_ON_DELIVERY",
+    "PREPAID",
+    "NET_7",
+    "NET_15",
+    "NET_30",
+    "NET_45",
+    "NET_60",
+    "CUSTOM"
+  ];
+}
+
+function isValidSupplierData(data) {
+  return data.supplierCode is string
+    && data.supplierCode.matches(
+      "^SUP-[0-9]{6}$"
+    )
+
+    && data.name is string
+    && data.name.size() >= 2
+    && data.name.size() <= 150
+
+    && data.nameNormalized is string
+    && data.nameNormalized.size() >= 2
+    && data.nameNormalized.size() <= 150
+
+    && data.contactPerson is string
+    && data.contactPerson.size() <= 100
+
+    && data.contactNumber is string
+    && data.contactNumber.size() <= 30
+    && data.contactNumber.matches(
+      "^[0-9+(). -]*$"
+    )
+
+    && data.email is string
+    && data.email.size() <= 150
+    && (
+      data.email == ""
+      || data.email.matches(
+        "^[^@ ]+@[^@ ]+[.][^@ ]+$"
+      )
+    )
+
+    && data.address is string
+    && data.address.size() <= 300
+
+    && data.tin is string
+    && data.tin.size() <= 50
+    && data.tin.matches(
+      "^[A-Za-z0-9 -]*$"
+    )
+
+    && isValidSupplierPaymentTerm(
+      data.paymentTerm
+    )
+
+    && data.customPaymentTerms is string
+    && data.customPaymentTerms.size() <= 100
+
+    && (
+      (
+        data.paymentTerm == "CUSTOM"
+        && data.customPaymentTerms.size() >= 1
+      )
+      ||
+      (
+        data.paymentTerm != "CUSTOM"
+        && data.customPaymentTerms == ""
+      )
+    )
+
+    && data.notes is string
+    && data.notes.size() <= 500
+
+    && isValidSupplierStatus(
+      data.status
+    )
+
+    && data.hasPurchaseHistory is bool
+
+    && data.purchaseOrderCount is int
+    && data.purchaseOrderCount >= 0
+
+    && data.createdBy is string
+    && data.createdBy.size() >= 1
+
+    && data.updatedBy is string
+    && data.updatedBy.size() >= 1;
+}
+
+function onlySupplierMasterFieldsChanged() {
+  return request.resource.data
+    .diff(resource.data)
+    .affectedKeys()
+    .hasOnly([
+      "name",
+      "nameNormalized",
+      "contactPerson",
+      "contactNumber",
+      "email",
+      "address",
+      "tin",
+      "paymentTerm",
+      "customPaymentTerms",
+      "notes",
+      "updatedBy",
+      "updatedAt"
+    ]);
+}
+
+function onlySupplierStatusFieldsChanged() {
+  return request.resource.data
+    .diff(resource.data)
+    .affectedKeys()
+    .hasOnly([
+      "status",
+      "statusChangedBy",
+      "statusChangedAt",
+      "updatedBy",
+      "updatedAt"
+    ]);
+}
+
+/*
+ * SUPPLIER MASTER DATA
+ */
+match /suppliers/{supplierId} {
+
+  /*
+   * Superadmin, Admin, Inventory Staff,
+   * and Auditor may view supplier records.
+   */
+  allow get, list: if canReadSuppliers();
+
+  /*
+   * Only Superadmin and Admin may create
+   * supplier records.
+   */
+  allow create: if isSupplierManager()
+
+    && request.resource.data.keys().hasOnly([
+      "supplierCode",
+      "name",
+      "nameNormalized",
+      "contactPerson",
+      "contactNumber",
+      "email",
+      "address",
+      "tin",
+      "paymentTerm",
+      "customPaymentTerms",
+      "notes",
+      "status",
+      "hasPurchaseHistory",
+      "purchaseOrderCount",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "supplierCode",
+      "name",
+      "nameNormalized",
+      "contactPerson",
+      "contactNumber",
+      "email",
+      "address",
+      "tin",
+      "paymentTerm",
+      "customPaymentTerms",
+      "notes",
+      "status",
+      "hasPurchaseHistory",
+      "purchaseOrderCount",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && isValidSupplierData(
+      request.resource.data
+    )
+
+    && request.resource.data.status
+      == "ACTIVE"
+
+    && request.resource.data.hasPurchaseHistory
+      == false
+
+    && request.resource.data.purchaseOrderCount
+      == 0
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time
+
+    && request.resource.data.updatedAt
+      == request.time
+
+    /*
+     * Supplier creation must also update the
+     * supplier number counter in the same batch
+     * or transaction.
+     */
+    && getAfter(
+      /databases/$(database)/documents/supplierCounters/default
+    ).data.updatedBy == request.auth.uid
+
+    && getAfter(
+      /databases/$(database)/documents/supplierCounters/default
+    ).data.updatedAt == request.time;
+
+  /*
+   * Update supplier contact and payment details.
+   */
+  allow update: if isSupplierManager()
+
+    && isValidSupplierData(
+      request.resource.data
+    )
+
+    && (
+      /*
+       * Master-data update.
+       */
+      (
+        onlySupplierMasterFieldsChanged()
+
+        && request.resource.data.supplierCode
+          == resource.data.supplierCode
+
+        && request.resource.data.status
+          == resource.data.status
+
+        && request.resource.data.hasPurchaseHistory
+          == resource.data.hasPurchaseHistory
+
+        && request.resource.data.purchaseOrderCount
+          == resource.data.purchaseOrderCount
+
+        && request.resource.data.createdBy
+          == resource.data.createdBy
+
+        && request.resource.data.createdAt
+          == resource.data.createdAt
+
+        && request.resource.data.updatedBy
+          == request.auth.uid
+
+        && request.resource.data.updatedAt
+          == request.time
+      )
+
+      ||
+
+      /*
+       * Activate or deactivate the supplier.
+       */
+      (
+        onlySupplierStatusFieldsChanged()
+
+        && request.resource.data.status
+          != resource.data.status
+
+        && request.resource.data.keys().hasAll([
+          "statusChangedBy",
+          "statusChangedAt"
+        ])
+
+        && request.resource.data.statusChangedBy
+          == request.auth.uid
+
+        && request.resource.data.statusChangedAt
+          == request.time
+
+        && request.resource.data.updatedBy
+          == request.auth.uid
+
+        && request.resource.data.updatedAt
+          == request.time
+      )
+    );
+
+  /*
+   * Supplier records remain permanent.
+   */
+  allow delete: if false;
+}
+
+/*
+ * SUPPLIER CODE COUNTER
+ */
+match /supplierCounters/{counterId} {
+
+  /*
+   * The create-supplier transaction reads the
+   * current supplier sequence.
+   */
+  allow get: if isSupplierManager();
+
+  allow list: if false;
+
+  /*
+   * The first supplier begins at sequence 1.
+   */
+  allow create: if isSupplierManager()
+
+    && counterId == "default"
+
+    && request.resource.data.keys().hasOnly([
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.lastSequence
+      is int
+
+    && request.resource.data.lastSequence
+      == 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * Every new supplier increases the counter
+   * by exactly one.
+   */
+  allow update: if isSupplierManager()
+
+    && counterId == "default"
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "lastSequence",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.lastSequence
+      is int
+
+    && request.resource.data.lastSequence
+      == resource.data.lastSequence + 1
+
+    && request.resource.data.lastSequence
+      <= 999999
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  allow delete: if false;
+}
+
+/*
+ * PURCHASE ORDER ACCESS
+ */
+function canReadPurchaseOrders() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+}
+
+function canManagePurchaseOrderDrafts() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+}
+
+function isValidPurchaseOrderPaymentTerm(paymentTerm) {
+  return paymentTerm in [
+    "CASH_ON_DELIVERY",
+    "PREPAID",
+    "NET_7",
+    "NET_15",
+    "NET_30",
+    "NET_45",
+    "NET_60",
+    "CUSTOM"
+  ];
+}
+
+function isValidPurchaseOrderDateKey(value) {
+  return value is string
+    && value.matches(
+      "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    );
+}
+
+function isValidOptionalPurchaseOrderDateKey(value) {
+  return value is string
+    && (
+      value == ""
+      || value.matches(
+        "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+      )
+    );
+}
+
+function isValidPurchaseOrderMoney(value) {
+  return value is number
+    && value >= 0
+    && value <= 999999999999.99;
+}
+
+function isValidPurchaseOrderHeader(data) {
+  return data.keys().hasOnly([
+      "poNumber",
+      "poYear",
+
+      "supplierId",
+      "supplierCode",
+      "supplierName",
+      "supplierAddress",
+      "supplierTin",
+      "supplierPaymentTerm",
+      "supplierCustomPaymentTerms",
+
+      "orderDate",
+      "orderDateKey",
+      "expectedDeliveryDate",
+      "expectedDeliveryDateKey",
+
+      "status",
+
+      "itemCount",
+      "itemProductIds",
+
+      "totalOrderedQuantity",
+      "totalReceivedQuantity",
+
+      "subtotal",
+      "discountAmount",
+      "taxAmount",
+      "shippingAmount",
+      "grandTotal",
+
+      "hasReceivingHistory",
+      "goodsReceiptCount",
+
+      "notes",
+      "revision",
+
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && data.keys().hasAll([
+      "poNumber",
+      "poYear",
+
+      "supplierId",
+      "supplierCode",
+      "supplierName",
+      "supplierAddress",
+      "supplierTin",
+      "supplierPaymentTerm",
+      "supplierCustomPaymentTerms",
+
+      "orderDate",
+      "orderDateKey",
+      "expectedDeliveryDate",
+      "expectedDeliveryDateKey",
+
+      "status",
+
+      "itemCount",
+      "itemProductIds",
+
+      "totalOrderedQuantity",
+      "totalReceivedQuantity",
+
+      "subtotal",
+      "discountAmount",
+      "taxAmount",
+      "shippingAmount",
+      "grandTotal",
+
+      "hasReceivingHistory",
+      "goodsReceiptCount",
+
+      "notes",
+      "revision",
+
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && data.poNumber is string
+    && data.poNumber.matches(
+      "^PO-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && data.poYear is int
+    && data.poYear >= 2000
+    && data.poYear <= 9999
+
+    && data.supplierId is string
+    && data.supplierId.size() >= 1
+
+    && data.supplierCode is string
+    && data.supplierCode.size() >= 1
+    && data.supplierCode.size() <= 30
+
+    && data.supplierName is string
+    && data.supplierName.size() >= 2
+    && data.supplierName.size() <= 150
+
+    && data.supplierAddress is string
+    && data.supplierAddress.size() <= 300
+
+    && data.supplierTin is string
+    && data.supplierTin.size() <= 50
+
+    && isValidPurchaseOrderPaymentTerm(
+      data.supplierPaymentTerm
+    )
+
+    && data.supplierCustomPaymentTerms is string
+    && data.supplierCustomPaymentTerms.size() <= 100
+
+    && data.orderDate is timestamp
+
+    && isValidPurchaseOrderDateKey(
+      data.orderDateKey
+    )
+
+    && (
+      data.expectedDeliveryDate == null
+      || data.expectedDeliveryDate is timestamp
+    )
+
+    && isValidOptionalPurchaseOrderDateKey(
+      data.expectedDeliveryDateKey
+    )
+
+    && (
+      data.expectedDeliveryDateKey == ""
+      || data.expectedDeliveryDateKey
+        >= data.orderDateKey
+    )
+
+    && data.status == "DRAFT"
+
+    && data.itemCount is int
+    && data.itemCount >= 1
+    && data.itemCount <= 100
+
+    && data.itemProductIds is list
+    && data.itemProductIds.size()
+      == data.itemCount
+
+    && data.totalOrderedQuantity is int
+    && data.totalOrderedQuantity >= 1
+
+    && data.totalReceivedQuantity is int
+    && data.totalReceivedQuantity == 0
+
+    && isValidPurchaseOrderMoney(
+      data.subtotal
+    )
+
+    && isValidPurchaseOrderMoney(
+      data.discountAmount
+    )
+
+    && data.discountAmount
+      <= data.subtotal
+
+    && isValidPurchaseOrderMoney(
+      data.taxAmount
+    )
+
+    && isValidPurchaseOrderMoney(
+      data.shippingAmount
+    )
+
+    && isValidPurchaseOrderMoney(
+      data.grandTotal
+    )
+
+    && data.grandTotal
+      >= (
+        data.subtotal
+        - data.discountAmount
+        + data.taxAmount
+        + data.shippingAmount
+        - 0.01
+      )
+
+    && data.grandTotal
+      <= (
+        data.subtotal
+        - data.discountAmount
+        + data.taxAmount
+        + data.shippingAmount
+        + 0.01
+      )
+
+    && data.hasReceivingHistory is bool
+    && data.hasReceivingHistory == false
+
+    && data.goodsReceiptCount is int
+    && data.goodsReceiptCount == 0
+
+    && data.notes is string
+    && data.notes.size() <= 1000
+
+    && data.revision is int
+    && data.revision >= 1
+
+    && data.createdBy is string
+    && data.createdBy.size() >= 1
+
+    && data.createdAt is timestamp
+
+    && data.updatedBy is string
+    && data.updatedBy.size() >= 1
+
+    && data.updatedAt is timestamp
+
+    /*
+     * Validate the selected supplier snapshot.
+     */
+    && exists(
+      /databases/$(database)/documents/suppliers/$(data.supplierId)
+    )
+
+    && get(
+      /databases/$(database)/documents/suppliers/$(data.supplierId)
+    ).data.status == "ACTIVE"
+
+    && data.supplierCode
+      == get(
+        /databases/$(database)/documents/suppliers/$(data.supplierId)
+      ).data.supplierCode
+
+    && data.supplierName
+      == get(
+        /databases/$(database)/documents/suppliers/$(data.supplierId)
+      ).data.name;
+}
+
+function isValidPurchaseOrderItem(
+  data,
+  purchaseOrderId,
+  itemId
+) {
+  return data.keys().hasOnly([
+      "purchaseOrderId",
+      "poNumber",
+      "poStatus",
+
+      "productId",
+      "productName",
+      "productSku",
+      "barcode",
+
+      "category",
+      "categoryCode",
+
+      "unitCode",
+      "unitName",
+      "unitAbbreviation",
+
+      "orderedQuantity",
+      "receivedQuantity",
+      "remainingQuantity",
+
+      "unitCost",
+      "lineTotal",
+
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && data.keys().hasAll([
+      "purchaseOrderId",
+      "poNumber",
+      "poStatus",
+
+      "productId",
+      "productName",
+      "productSku",
+      "barcode",
+
+      "category",
+      "categoryCode",
+
+      "unitCode",
+      "unitName",
+      "unitAbbreviation",
+
+      "orderedQuantity",
+      "receivedQuantity",
+      "remainingQuantity",
+
+      "unitCost",
+      "lineTotal",
+
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && data.purchaseOrderId
+      == purchaseOrderId
+
+    && data.productId
+      == itemId
+
+    && data.poNumber is string
+    && data.poNumber.matches(
+      "^PO-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && data.poStatus == "DRAFT"
+
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 150
+
+    && data.productSku is string
+    && data.productSku.size() >= 2
+    && data.productSku.size() <= 50
+
+    && data.barcode is string
+    && data.barcode.size() <= 100
+
+    && data.category is string
+    && data.category.size() >= 1
+    && data.category.size() <= 150
+
+    && data.categoryCode is string
+    && data.categoryCode.size() >= 1
+    && data.categoryCode.size() <= 50
+
+    && data.unitCode is string
+    && data.unitCode.size() >= 1
+    && data.unitCode.size() <= 50
+
+    && data.unitName is string
+    && data.unitName.size() >= 1
+    && data.unitName.size() <= 100
+
+    && data.unitAbbreviation is string
+    && data.unitAbbreviation.size() >= 1
+    && data.unitAbbreviation.size() <= 10
+
+    && data.orderedQuantity is int
+    && data.orderedQuantity >= 1
+    && data.orderedQuantity <= 999999999
+
+    && data.receivedQuantity is int
+    && data.receivedQuantity == 0
+
+    && data.remainingQuantity is int
+    && data.remainingQuantity
+      == data.orderedQuantity
+
+    && data.unitCost is number
+    && data.unitCost >= 0
+    && data.unitCost <= 999999999
+
+    && isValidPurchaseOrderMoney(
+      data.lineTotal
+    )
+
+    && data.lineTotal
+      >= (
+        data.orderedQuantity
+        * data.unitCost
+        - 0.01
+      )
+
+    && data.lineTotal
+      <= (
+        data.orderedQuantity
+        * data.unitCost
+        + 0.01
+      )
+
+    && data.createdBy is string
+    && data.createdBy.size() >= 1
+
+    && data.createdAt is timestamp
+
+    && data.updatedBy is string
+    && data.updatedBy.size() >= 1
+
+    && data.updatedAt is timestamp;
+}
+
+
+/*
+ * PURCHASE ORDER HEADERS
+ */
+match /purchaseOrders/{purchaseOrderId} {
+
+  allow get, list: if canReadPurchaseOrders();
+
+  /*
+   * Create a new Draft Purchase Order.
+   */
+  allow create: if canManagePurchaseOrderDrafts()
+
+    && isValidPurchaseOrderHeader(
+      request.resource.data
+    )
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time
+
+    && request.resource.data.revision
+      == 1;
+
+  /*
+   * Only Draft Purchase Orders may be edited.
+   */
+  allow update: if canManagePurchaseOrderDrafts()
+
+    && resource.data.status
+      == "DRAFT"
+
+    && request.resource.data.status
+      == "DRAFT"
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "supplierId",
+        "supplierCode",
+        "supplierName",
+        "supplierAddress",
+        "supplierTin",
+        "supplierPaymentTerm",
+        "supplierCustomPaymentTerms",
+
+        "orderDate",
+        "orderDateKey",
+        "expectedDeliveryDate",
+        "expectedDeliveryDateKey",
+
+        "itemCount",
+        "itemProductIds",
+        "totalOrderedQuantity",
+
+        "subtotal",
+        "discountAmount",
+        "taxAmount",
+        "shippingAmount",
+        "grandTotal",
+
+        "notes",
+        "revision",
+
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && isValidPurchaseOrderHeader(
+      request.resource.data
+    )
+
+    /*
+     * Permanent Purchase Order fields.
+     */
+    && request.resource.data.poNumber
+      == resource.data.poNumber
+
+    && request.resource.data.poYear
+      == resource.data.poYear
+
+    && request.resource.data.createdBy
+      == resource.data.createdBy
+
+    && request.resource.data.createdAt
+      == resource.data.createdAt
+
+    && request.resource.data.totalReceivedQuantity
+      == resource.data.totalReceivedQuantity
+
+    && request.resource.data.hasReceivingHistory
+      == resource.data.hasReceivingHistory
+
+    && request.resource.data.goodsReceiptCount
+      == resource.data.goodsReceiptCount
+
+    && request.resource.data.revision
+      == resource.data.revision + 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * Purchase Order headers remain permanent.
+   */
+  allow delete: if false;
+
+  /*
+   * PURCHASE ORDER ITEMS
+   */
+  match /items/{itemId} {
+
+    allow get, list: if canReadPurchaseOrders();
+
+    allow create: if canManagePurchaseOrderDrafts()
+
+      && isValidPurchaseOrderItem(
+        request.resource.data,
+        purchaseOrderId,
+        itemId
+      )
+
+      && request.resource.data.createdBy
+        == request.auth.uid
+
+      && request.resource.data.createdAt
+        == request.time
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    allow update: if canManagePurchaseOrderDrafts()
+
+      && resource.data.poStatus
+        == "DRAFT"
+
+      && request.resource.data.poStatus
+        == "DRAFT"
+
+      && request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasOnly([
+          "productName",
+          "productSku",
+          "barcode",
+
+          "category",
+          "categoryCode",
+
+          "unitCode",
+          "unitName",
+          "unitAbbreviation",
+
+          "orderedQuantity",
+          "remainingQuantity",
+
+          "unitCost",
+          "lineTotal",
+
+          "updatedBy",
+          "updatedAt"
+        ])
+
+      && isValidPurchaseOrderItem(
+        request.resource.data,
+        purchaseOrderId,
+        itemId
+      )
+
+      /*
+       * Permanent item identifiers.
+       */
+      && request.resource.data.purchaseOrderId
+        == resource.data.purchaseOrderId
+
+      && request.resource.data.poNumber
+        == resource.data.poNumber
+
+      && request.resource.data.productId
+        == resource.data.productId
+
+      && request.resource.data.receivedQuantity
+        == resource.data.receivedQuantity
+
+      && request.resource.data.createdBy
+        == resource.data.createdBy
+
+      && request.resource.data.createdAt
+        == resource.data.createdAt
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    /*
+     * Items may only be removed while Draft.
+     */
+    allow delete: if canManagePurchaseOrderDrafts()
+      && resource.data.poStatus == "DRAFT";
+  }
+}
+
+
+/*
+ * PURCHASE ORDER NUMBER COUNTERS
+ */
+match /purchaseOrderCounters/{counterId} {
+
+  allow get: if canManagePurchaseOrderDrafts();
+
+  allow list: if false;
+
+  allow create: if canManagePurchaseOrderDrafts()
+
+    && counterId.matches(
+      "^[0-9]{4}$"
+    )
+
+    && request.resource.data.keys().hasOnly([
+      "year",
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "year",
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.year is int
+
+    && request.resource.data.year >= 2000
+
+    && request.resource.data.year <= 9999
+
+    && request.resource.data.lastSequence is int
+
+    && request.resource.data.lastSequence
+      == 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  allow update: if canManagePurchaseOrderDrafts()
+
+    && counterId.matches(
+      "^[0-9]{4}$"
+    )
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "year",
+        "lastSequence",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.year
+      == resource.data.year
+
+    && request.resource.data.lastSequence
+      is int
+
+    && request.resource.data.lastSequence
+      == resource.data.lastSequence + 1
+
+    && request.resource.data.lastSequence
+      <= 999999
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  allow delete: if false;
+}
+
+
 
 
     /*

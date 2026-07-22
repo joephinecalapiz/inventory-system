@@ -5,10 +5,10 @@ const PAGE_TITLES = {
   "/dashboard": "Dashboard",
   "/inventory": "Inventory List",
   "/stock-in": "Stock In & Receipt History",
+  "/suppliers": "Supplier Management",
   "/products": "Product Management",
   "/categories": "Category Management",
   "/units": "Units of Measurement",
-
   "/add-products": "New Products",
   "/users": "User Management",
   "/cashier": "Cashier Portal",
