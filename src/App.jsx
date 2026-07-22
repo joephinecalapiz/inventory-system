@@ -11,6 +11,7 @@ import AddProduct from "./pages/AddProduct";
 import Categories from "./pages/Categories";
 import Dashboard from "./pages/Dashboard";
 import Inventory from "./pages/Inventory";
+import StockIn from "./pages/StockIn";
 import Login from "./pages/Login";
 import Products from "./pages/Products";
 
@@ -207,6 +208,23 @@ function App() {
               ]}
             >
               <Inventory currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/stock-in"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <StockIn currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

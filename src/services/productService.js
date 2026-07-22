@@ -1315,8 +1315,10 @@ export async function adjustProductStock(productId, movementType, amount) {
     throw new Error("A product ID is required.");
   }
 
-  if (movementType !== "IN" && movementType !== "OUT") {
-    throw new Error("Movement type must be IN or OUT.");
+  if (movementType !== "OUT") {
+    throw new Error(
+      "Use the Stock-In receipt page to receive inventory. This function only supports Stock Out.",
+    );
   }
 
   const currentUserId = getCurrentUserId();
@@ -1356,10 +1358,7 @@ export async function adjustProductStock(productId, movementType, amount) {
           throw new Error("The product contains an invalid stock quantity.");
         }
 
-        const newQuantity =
-          movementType === "IN"
-            ? previousQuantity + adjustmentAmount
-            : previousQuantity - adjustmentAmount;
+        const newQuantity = previousQuantity - adjustmentAmount;
 
         if (newQuantity < 0) {
           throw new Error(
@@ -1382,9 +1381,8 @@ export async function adjustProductStock(productId, movementType, amount) {
           productSku: product.sku,
 
           movementType,
-
-          reason:
-            movementType === "IN" ? "MANUAL_STOCK_IN" : "MANUAL_STOCK_OUT",
+          
+          reason: "MANUAL_STOCK_OUT",
 
           quantity: adjustmentAmount,
 

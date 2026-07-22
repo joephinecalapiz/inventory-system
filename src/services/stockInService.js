@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   getDoc,
+  onSnapshot,
   runTransaction,
   serverTimestamp,
   Timestamp,
@@ -101,6 +102,7 @@ async function getCurrentStockInUser() {
  * Local noon is used so that timezone conversion
  * does not accidentally display the previous day.
  */
+
 function createReceivedDateTimestamp(dateInput) {
   if (!isValidStockInDate(dateInput)) {
     throw new Error("A valid received date is required.");
@@ -117,6 +119,14 @@ function createReceivedDateTimestamp(dateInput) {
     0,
     0,
   );
+
+  const currentDate = new Date();
+
+  currentDate.setHours(23, 59, 59, 999);
+
+  if (receivedDate.getTime() > currentDate.getTime()) {
+    throw new Error("The received date cannot be in the future.");
+  }
 
   return Timestamp.fromDate(receivedDate);
 }
@@ -489,4 +499,108 @@ export async function createStockInReceipt(stockInData) {
 
     throw error;
   }
+}
+
+function getFirestoreDateMilliseconds(value) {
+  if (!value) {
+    return 0;
+  }
+
+  if (typeof value.toMillis === "function") {
+    return value.toMillis();
+  }
+
+  if (typeof value.toDate === "function") {
+    return value.toDate().getTime();
+  }
+
+  const parsedTime = new Date(value).getTime();
+
+  return Number.isFinite(parsedTime) ? parsedTime : 0;
+}
+
+function getMovementSortTime(movement) {
+  return (
+    getFirestoreDateMilliseconds(movement.createdAt) ||
+    getFirestoreDateMilliseconds(movement.dateReceived)
+  );
+}
+
+/**
+ * Subscribes to permanent Stock-In movement
+ * history in real time.
+ *
+ * It also supports older movement records that
+ * may use `type` instead of `movementType`.
+ */
+export function subscribeToStockInReceipts(onData, onError) {
+  const movementCollection = collection(db, "stockMovements");
+
+  return onSnapshot(
+    movementCollection,
+
+    (snapshot) => {
+      const receipts = snapshot.docs
+        .map((movementSnapshot) => {
+          const movement = movementSnapshot.data();
+
+          const movementType = String(
+            movement.movementType ?? movement.type ?? "",
+          )
+            .trim()
+            .toUpperCase();
+
+          const quantity = Number(
+            movement.quantity ?? movement.quantityReceived ?? 0,
+          );
+
+          const unitCost = Number(movement.unitCost ?? 0);
+
+          const storedTotalCost = Number(movement.totalCost);
+
+          const calculatedTotalCost =
+            Number.isFinite(quantity) && Number.isFinite(unitCost)
+              ? Math.round((quantity * unitCost + Number.EPSILON) * 100) / 100
+              : 0;
+
+          return {
+            id: movementSnapshot.id,
+
+            ...movement,
+
+            movementType,
+
+            quantity: Number.isFinite(quantity) ? quantity : 0,
+
+            previousQuantity: Number(movement.previousQuantity ?? 0),
+
+            newQuantity: Number(movement.newQuantity ?? 0),
+
+            unitCost: Number.isFinite(unitCost) ? unitCost : 0,
+
+            totalCost: Number.isFinite(storedTotalCost)
+              ? storedTotalCost
+              : calculatedTotalCost,
+          };
+        })
+        .filter((movement) => movement.movementType === STOCK_MOVEMENT_TYPES.IN)
+        .sort(
+          (firstMovement, secondMovement) =>
+            getMovementSortTime(secondMovement) -
+            getMovementSortTime(firstMovement),
+        );
+
+      if (typeof onData === "function") {
+        onData(receipts);
+      }
+    },
+
+    (error) => {
+      console.error("Unable to load Stock-In history:", error);
+
+      if (typeof onError === "function") {
+        onError(error);
+      }
+    },
+  );
 }

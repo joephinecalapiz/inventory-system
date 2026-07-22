@@ -1,20 +1,16 @@
-import {
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { useEffect, useMemo, useState } from "react";
+
+import { useNavigate } from "react-router-dom";
 
 import "../styles/App.css";
 
 import ProductBarcode from "../components/ProductBarcode";
 
-import {
-  USER_ROLES,
-} from "../constants/roles";
+import { USER_ROLES } from "../constants/roles";
 
-import {
-  subscribeToActiveUnits,
-} from "../services/unitService";
+import { PRODUCT_STATUSES } from "../constants/products";
+
+import { subscribeToActiveUnits } from "../services/unitService";
 
 import {
   adjustProductStock,
@@ -23,9 +19,8 @@ import {
   subscribeToProducts,
 } from "../services/productService";
 
-function Inventory({
-  currentUserRole,
-}) {
+function Inventory({ currentUserRole }) {
+  const navigate = useNavigate();
   const canAdjustStock = [
     USER_ROLES.SUPERADMIN,
     USER_ROLES.ADMIN,
@@ -38,357 +33,212 @@ function Inventory({
     USER_ROLES.INVENTORY_STAFF,
   ].includes(currentUserRole);
 
-  const canDeleteProducts = [
-    USER_ROLES.SUPERADMIN,
-    USER_ROLES.ADMIN,
-  ].includes(currentUserRole);
+  const canDeleteProducts = [USER_ROLES.SUPERADMIN, USER_ROLES.ADMIN].includes(
+    currentUserRole,
+  );
 
-  const isReadOnly =
-    currentUserRole ===
-    USER_ROLES.AUDITOR;
+  const isReadOnly = currentUserRole === USER_ROLES.AUDITOR;
 
-  const [products, setProducts] =
-    useState([]);
+  const [products, setProducts] = useState([]);
 
-  const [activeUnits, setActiveUnits] =
-    useState([]);
+  const [activeUnits, setActiveUnits] = useState([]);
 
-  const [
-    unitSelections,
-    setUnitSelections,
-  ] = useState({});
+  const [unitSelections, setUnitSelections] = useState({});
 
-  const [
-    searchTerm,
-    setSearchTerm,
-  ] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
 
-  const [
-    categoryFilter,
-    setCategoryFilter,
-  ] = useState("ALL");
+  const [categoryFilter, setCategoryFilter] = useState("ALL");
 
-  const [
-    stockFilter,
-    setStockFilter,
-  ] = useState("ALL");
+  const [stockFilter, setStockFilter] = useState("ALL");
 
-  const [isLoading, setIsLoading] =
-    useState(true);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [
-    isLoadingUnits,
-    setIsLoadingUnits,
-  ] = useState(true);
+  const [isLoadingUnits, setIsLoadingUnits] = useState(true);
 
-  const [
-    busyProductId,
-    setBusyProductId,
-  ] = useState(null);
+  const [busyProductId, setBusyProductId] = useState(null);
 
-  const [
-    firebaseError,
-    setFirebaseError,
-  ] = useState("");
+  const [firebaseError, setFirebaseError] = useState("");
 
-  const [
-    unitLoadError,
-    setUnitLoadError,
-  ] = useState("");
+  const [unitLoadError, setUnitLoadError] = useState("");
 
   useEffect(() => {
-    const unsubscribe =
-      subscribeToProducts(
-        (firebaseProducts) => {
-          setProducts(
-            firebaseProducts,
-          );
+    const unsubscribe = subscribeToProducts(
+      (firebaseProducts) => {
+        setProducts(firebaseProducts);
 
-          setIsLoading(false);
-          setFirebaseError("");
-        },
+        setIsLoading(false);
+        setFirebaseError("");
+      },
 
-        (error) => {
-          console.error(
-            "Unable to load inventory:",
-            error,
-          );
+      (error) => {
+        console.error("Unable to load inventory:", error);
 
-          setFirebaseError(
-            error?.message ||
-              "Unable to load the inventory list from Firebase.",
-          );
+        setFirebaseError(
+          error?.message || "Unable to load the inventory list from Firebase.",
+        );
 
-          setIsLoading(false);
-        },
-      );
+        setIsLoading(false);
+      },
+    );
 
     return unsubscribe;
   }, []);
 
   useEffect(() => {
-    const unsubscribe =
-      subscribeToActiveUnits(
-        (units) => {
-          setActiveUnits(units);
-          setIsLoadingUnits(false);
-          setUnitLoadError("");
+    const unsubscribe = subscribeToActiveUnits(
+      (units) => {
+        setActiveUnits(units);
+        setIsLoadingUnits(false);
+        setUnitLoadError("");
 
-          /*
-           * Remove dropdown selections for units
-           * that are no longer active.
-           */
-          setUnitSelections(
-            (currentSelections) => {
-              const nextSelections = {};
+        /*
+         * Remove dropdown selections for units
+         * that are no longer active.
+         */
+        setUnitSelections((currentSelections) => {
+          const nextSelections = {};
 
-              for (
-                const [
-                  productId,
-                  unitCode,
-                ] of Object.entries(
-                  currentSelections,
-                )
-              ) {
-                const unitStillActive =
-                  units.some(
-                    (unit) =>
-                      (
-                        unit.code ??
-                        unit.id
-                      ) === unitCode,
-                  );
-
-                if (unitStillActive) {
-                  nextSelections[
-                    productId
-                  ] = unitCode;
-                }
-              }
-
-              return nextSelections;
-            },
-          );
-        },
-
-        (error) => {
-          console.error(
-            "Unable to load active units:",
-            error,
-          );
-
-          setUnitLoadError(
-            error?.message ||
-              "Unable to load active units of measurement.",
-          );
-
-          setIsLoadingUnits(false);
-        },
-      );
-
-    return unsubscribe;
-  }, []);
-
-  const categories =
-    useMemo(() => {
-      return [
-        ...new Set(
-          products
-            .map(
-              (product) =>
-                product.category,
-            )
-            .filter(Boolean),
-        ),
-      ].sort();
-    }, [products]);
-
-  const filteredProducts =
-    useMemo(() => {
-      const normalizedSearch =
-        searchTerm
-          .toLowerCase()
-          .trim();
-
-      return products.filter(
-        (product) => {
-          const name = String(
-            product.name ?? "",
-          ).toLowerCase();
-
-          const sku = String(
-            product.sku ?? "",
-          ).toLowerCase();
-
-          const barcode = String(
-            product.barcode ?? "",
-          ).toLowerCase();
-
-          const category = String(
-            product.category ?? "",
-          ).toLowerCase();
-
-          const unitName = String(
-            product.unitName ?? "",
-          ).toLowerCase();
-
-          const unitAbbreviation =
-            String(
-              product.unitAbbreviation ??
-                "",
-            ).toLowerCase();
-
-          const matchesSearch =
-            name.includes(
-              normalizedSearch,
-            ) ||
-            sku.includes(
-              normalizedSearch,
-            ) ||
-            barcode.includes(
-              normalizedSearch,
-            ) ||
-            category.includes(
-              normalizedSearch,
-            ) ||
-            unitName.includes(
-              normalizedSearch,
-            ) ||
-            unitAbbreviation.includes(
-              normalizedSearch,
+          for (const [productId, unitCode] of Object.entries(
+            currentSelections,
+          )) {
+            const unitStillActive = units.some(
+              (unit) => (unit.code ?? unit.id) === unitCode,
             );
 
-          const matchesCategory =
-            categoryFilter === "ALL" ||
-            product.category ===
-              categoryFilter;
+            if (unitStillActive) {
+              nextSelections[productId] = unitCode;
+            }
+          }
 
-          const status =
-            getStockStatus(product);
+          return nextSelections;
+        });
+      },
 
-          const matchesStock =
-            stockFilter === "ALL" ||
-            status.code ===
-              stockFilter;
+      (error) => {
+        console.error("Unable to load active units:", error);
 
-          return (
-            matchesSearch &&
-            matchesCategory &&
-            matchesStock
-          );
-        },
-      );
-    }, [
-      products,
-      searchTerm,
-      categoryFilter,
-      stockFilter,
-    ]);
+        setUnitLoadError(
+          error?.message || "Unable to load active units of measurement.",
+        );
 
-  function handleUnitSelectionChange(
-    productId,
-    unitCode,
-  ) {
-    setUnitSelections(
-      (currentSelections) => ({
-        ...currentSelections,
-        [productId]: unitCode,
-      }),
+        setIsLoadingUnits(false);
+      },
     );
+
+    return unsubscribe;
+  }, []);
+
+  const categories = useMemo(() => {
+    return [
+      ...new Set(products.map((product) => product.category).filter(Boolean)),
+    ].sort();
+  }, [products]);
+
+  const filteredProducts = useMemo(() => {
+    const normalizedSearch = searchTerm.toLowerCase().trim();
+
+    return products.filter((product) => {
+      const name = String(product.name ?? "").toLowerCase();
+
+      const sku = String(product.sku ?? "").toLowerCase();
+
+      const barcode = String(product.barcode ?? "").toLowerCase();
+
+      const category = String(product.category ?? "").toLowerCase();
+
+      const unitName = String(product.unitName ?? "").toLowerCase();
+
+      const unitAbbreviation = String(
+        product.unitAbbreviation ?? "",
+      ).toLowerCase();
+
+      const matchesSearch =
+        name.includes(normalizedSearch) ||
+        sku.includes(normalizedSearch) ||
+        barcode.includes(normalizedSearch) ||
+        category.includes(normalizedSearch) ||
+        unitName.includes(normalizedSearch) ||
+        unitAbbreviation.includes(normalizedSearch);
+
+      const matchesCategory =
+        categoryFilter === "ALL" || product.category === categoryFilter;
+
+      const status = getStockStatus(product);
+
+      const matchesStock = stockFilter === "ALL" || status.code === stockFilter;
+
+      return matchesSearch && matchesCategory && matchesStock;
+    });
+  }, [products, searchTerm, categoryFilter, stockFilter]);
+
+  function handleUnitSelectionChange(productId, unitCode) {
+    setUnitSelections((currentSelections) => ({
+      ...currentSelections,
+      [productId]: unitCode,
+    }));
 
     setFirebaseError("");
   }
 
-  async function handleAssignUnit(
-    product,
-  ) {
+  async function handleAssignUnit(product) {
     if (!canAssignUnits) {
-      setFirebaseError(
-        "Your role is not allowed to assign product units.",
-      );
+      setFirebaseError("Your role is not allowed to assign product units.");
 
       return;
     }
 
     const selectedUnitCode =
-      unitSelections[product.id] ??
-      product.unitCode ??
-      product.unitId ??
-      "";
+      unitSelections[product.id] ?? product.unitCode ?? product.unitId ?? "";
 
     if (!selectedUnitCode) {
-      setFirebaseError(
-        `Please select a unit for ${product.name}.`,
-      );
+      setFirebaseError(`Please select a unit for ${product.name}.`);
 
       return;
     }
 
-    const selectedUnit =
-      activeUnits.find(
-        (unit) =>
-          (
-            unit.code ??
-            unit.id
-          ) === selectedUnitCode,
-      );
+    const selectedUnit = activeUnits.find(
+      (unit) => (unit.code ?? unit.id) === selectedUnitCode,
+    );
 
     if (!selectedUnit) {
-      setFirebaseError(
-        "The selected unit is no longer active.",
-      );
+      setFirebaseError("The selected unit is no longer active.");
 
       return;
     }
 
-    const shouldContinue =
-      window.confirm(
-        `Assign ${selectedUnit.name} (${selectedUnit.abbreviation}) to "${product.name}"?`,
-      );
+    const shouldContinue = window.confirm(
+      `Assign ${selectedUnit.name} (${selectedUnit.abbreviation}) to "${product.name}"?`,
+    );
 
     if (!shouldContinue) {
       return;
     }
 
     try {
-      setBusyProductId(
-        product.id,
-      );
+      setBusyProductId(product.id);
 
       setFirebaseError("");
 
-      const result =
-        await assignProductUnit(
-          product.id,
-          selectedUnitCode,
-        );
+      const result = await assignProductUnit(product.id, selectedUnitCode);
 
-      setUnitSelections(
-        (currentSelections) => {
-          const nextSelections = {
-            ...currentSelections,
-          };
+      setUnitSelections((currentSelections) => {
+        const nextSelections = {
+          ...currentSelections,
+        };
 
-          delete nextSelections[
-            product.id
-          ];
+        delete nextSelections[product.id];
 
-          return nextSelections;
-        },
-      );
+        return nextSelections;
+      });
 
       window.alert(
         `${product.name} now uses ${result.unitName} (${result.unitAbbreviation}).`,
       );
     } catch (error) {
-      console.error(
-        "Unable to assign product unit:",
-        error,
-      );
+      console.error("Unable to assign product unit:", error);
 
       const message =
-        error?.message ||
-        "Unable to assign the unit of measurement.";
+        error?.message || "Unable to assign the unit of measurement.";
 
       setFirebaseError(message);
       window.alert(message);
@@ -397,56 +247,40 @@ function Inventory({
     }
   }
 
-  async function handleDelete(
-    productId,
-  ) {
+  async function handleDelete(productId) {
     if (!canDeleteProducts) {
-      setFirebaseError(
-        "Your role is not allowed to delete products.",
-      );
+      setFirebaseError("Your role is not allowed to delete products.");
 
       return;
     }
 
-    const product =
-      products.find(
-        (currentProduct) =>
-          currentProduct.id ===
-          productId,
-      );
+    const product = products.find(
+      (currentProduct) => currentProduct.id === productId,
+    );
 
     if (!product) {
       return;
     }
 
-    const shouldDelete =
-      window.confirm(
-        `Delete "${product.name}" from the inventory?`,
-      );
+    const shouldDelete = window.confirm(
+      `Delete "${product.name}" from the inventory?`,
+    );
 
     if (!shouldDelete) {
       return;
     }
 
     try {
-      setBusyProductId(
-        productId,
-      );
+      setBusyProductId(productId);
 
       setFirebaseError("");
 
-      await deleteProduct(
-        productId,
-      );
+      await deleteProduct(productId);
     } catch (error) {
-      console.error(
-        "Unable to delete product:",
-        error,
-      );
+      console.error("Unable to delete product:", error);
 
       const message =
-        error?.message ||
-        "Unable to delete the product. Please try again.";
+        error?.message || "Unable to delete the product. Please try again.";
 
       setFirebaseError(message);
       window.alert(message);
@@ -455,10 +289,33 @@ function Inventory({
     }
   }
 
-  async function handleStockAdjustment(
-    productId,
-    movementType,
-  ) {
+  function handleOpenStockIn(product) {
+    if (!canAdjustStock) {
+      setFirebaseError("Your role is not allowed to receive inventory stock.");
+
+      return;
+    }
+
+    if (!product?.id) {
+      setFirebaseError("The selected product could not be found.");
+
+      return;
+    }
+
+    const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
+
+    if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
+      setFirebaseError(`${product.name} is inactive and cannot receive stock.`);
+
+      return;
+    }
+
+    setFirebaseError("");
+
+    navigate(`/stock-in?productId=${encodeURIComponent(product.id)}`);
+  }
+
+  async function handleStockAdjustment(productId, movementType) {
     if (!canAdjustStock) {
       setFirebaseError(
         "Your role is not allowed to change inventory quantities.",
@@ -467,52 +324,33 @@ function Inventory({
       return;
     }
 
-    const product =
-      products.find(
-        (currentProduct) =>
-          currentProduct.id ===
-          productId,
-      );
+    const product = products.find(
+      (currentProduct) => currentProduct.id === productId,
+    );
 
     if (!product) {
       return;
     }
 
-    const movementLabel =
-      movementType === "IN"
-        ? "stock in"
-        : "stock out";
+    const movementLabel = movementType === "IN" ? "stock in" : "stock out";
 
-    const input =
-      window.prompt(
-        `Enter the quantity to ${movementLabel} for ${product.name}:`,
-      );
+    const input = window.prompt(
+      `Enter the quantity to ${movementLabel} for ${product.name}:`,
+    );
 
     if (input === null) {
       return;
     }
 
-    const amount =
-      Number(input);
+    const amount = Number(input);
 
-    if (
-      !Number.isInteger(amount) ||
-      amount <= 0
-    ) {
-      window.alert(
-        "Please enter a positive whole number.",
-      );
+    if (!Number.isInteger(amount) || amount <= 0) {
+      window.alert("Please enter a positive whole number.");
 
       return;
     }
 
-    if (
-      movementType === "OUT" &&
-      amount >
-        Number(
-          product.quantity ?? 0,
-        )
-    ) {
+    if (movementType === "OUT" && amount > Number(product.quantity ?? 0)) {
       window.alert(
         `Insufficient stock. Only ${product.quantity} item(s) are available.`,
       );
@@ -521,26 +359,15 @@ function Inventory({
     }
 
     try {
-      setBusyProductId(
-        productId,
-      );
+      setBusyProductId(productId);
 
       setFirebaseError("");
 
-      await adjustProductStock(
-        productId,
-        movementType,
-        amount,
-      );
+      await adjustProductStock(productId, movementType, amount);
     } catch (error) {
-      console.error(
-        "Unable to adjust stock:",
-        error,
-      );
+      console.error("Unable to adjust stock:", error);
 
-      const message =
-        error?.message ||
-        "Unable to update the product stock.";
+      const message = error?.message || "Unable to update the product stock.";
 
       setFirebaseError(message);
       window.alert(message);
@@ -558,19 +385,13 @@ function Inventory({
   return (
     <main className="page inventory-list-page">
       {firebaseError && (
-        <div
-          className="firebase-error"
-          role="alert"
-        >
+        <div className="firebase-error" role="alert">
           {firebaseError}
         </div>
       )}
 
       {unitLoadError && (
-        <div
-          className="firebase-error"
-          role="alert"
-        >
+        <div className="firebase-error" role="alert">
           {unitLoadError}
         </div>
       )}
@@ -578,15 +399,11 @@ function Inventory({
       {isReadOnly && (
         <div className="inventory-readonly-notice">
           <div>
-            <strong>
-              Read-only inventory access
-            </strong>
+            <strong>Read-only inventory access</strong>
 
             <span>
-              Your Auditor role can review
-              product, unit, and stock
-              information but cannot change
-              inventory records.
+              Your Auditor role can review product, unit, and stock information
+              but cannot change inventory records.
             </span>
           </div>
         </div>
@@ -595,131 +412,78 @@ function Inventory({
       <section className="panel inventory-panel">
         <div className="inventory-header">
           <div>
-            <p className="section-label">
-              Product records
-            </p>
+            <p className="section-label">Product records</p>
 
-            <h2>
-              Inventory List
-            </h2>
+            <h2>Inventory List</h2>
           </div>
 
           <span className="record-count">
-            {filteredProducts.length} of{" "}
-            {products.length} records
+            {filteredProducts.length} of {products.length} records
           </span>
         </div>
 
         <div className="filters">
           <label className="search-field">
-            <span>
-              Search products
-            </span>
+            <span>Search products</span>
 
             <input
               type="search"
               value={searchTerm}
-              onChange={(event) =>
-                setSearchTerm(
-                  event.target.value,
-                )
-              }
+              onChange={(event) => setSearchTerm(event.target.value)}
               placeholder="Search by SKU, barcode, name, category, or unit"
             />
           </label>
 
           <label>
-            <span>
-              Category
-            </span>
+            <span>Category</span>
 
             <select
               value={categoryFilter}
-              onChange={(event) =>
-                setCategoryFilter(
-                  event.target.value,
-                )
-              }
+              onChange={(event) => setCategoryFilter(event.target.value)}
             >
-              <option value="ALL">
-                All categories
-              </option>
+              <option value="ALL">All categories</option>
 
-              {categories.map(
-                (category) => (
-                  <option
-                    key={category}
-                    value={category}
-                  >
-                    {category}
-                  </option>
-                ),
-              )}
+              {categories.map((category) => (
+                <option key={category} value={category}>
+                  {category}
+                </option>
+              ))}
             </select>
           </label>
 
           <label>
-            <span>
-              Stock status
-            </span>
+            <span>Stock status</span>
 
             <select
               value={stockFilter}
-              onChange={(event) =>
-                setStockFilter(
-                  event.target.value,
-                )
-              }
+              onChange={(event) => setStockFilter(event.target.value)}
             >
-              <option value="ALL">
-                All statuses
-              </option>
+              <option value="ALL">All statuses</option>
 
-              <option value="IN_STOCK">
-                In stock
-              </option>
+              <option value="IN_STOCK">In stock</option>
 
-              <option value="LOW_STOCK">
-                Low stock
-              </option>
+              <option value="LOW_STOCK">Low stock</option>
 
-              <option value="OUT_OF_STOCK">
-                Out of stock
-              </option>
+              <option value="OUT_OF_STOCK">Out of stock</option>
             </select>
           </label>
 
-          <button
-            type="button"
-            className="clear-button"
-            onClick={clearFilters}
-          >
+          <button type="button" className="clear-button" onClick={clearFilters}>
             Clear filters
           </button>
         </div>
 
         {isLoading ? (
           <div className="empty-state">
-            <h3>
-              Loading products...
-            </h3>
+            <h3>Loading products...</h3>
 
-            <p>
-              Fetching inventory records
-              from Firebase.
-            </p>
+            <p>Fetching inventory records from Firebase.</p>
           </div>
-        ) : filteredProducts.length ===
-          0 ? (
+        ) : filteredProducts.length === 0 ? (
           <div className="empty-state">
-            <h3>
-              No products found
-            </h3>
+            <h3>No products found</h3>
 
-            <p>
-              Add a product or change the
-              selected filters.
-            </p>
+            <p>Add a product or change the selected filters.</p>
           </div>
         ) : (
           <div className="table-wrapper">
@@ -735,289 +499,182 @@ function Inventory({
                   <th>Unit Price</th>
                   <th>Total Value</th>
 
-                  {canAdjustStock && (
-                    <th>
-                      Stock Actions
-                    </th>
-                  )}
+                  {canAdjustStock && <th>Stock Actions</th>}
 
-                  {canDeleteProducts && (
-                    <th>
-                      Record Action
-                    </th>
-                  )}
+                  {canDeleteProducts && <th>Record Action</th>}
                 </tr>
               </thead>
 
               <tbody>
-                {filteredProducts.map(
-                  (product) => {
-                    const status =
-                      getStockStatus(
-                        product,
-                      );
+                {filteredProducts.map((product) => {
+                  const status = getStockStatus(product);
 
-                    const isBusy =
-                      busyProductId ===
-                      product.id;
+                  const isBusy = busyProductId === product.id;
 
-                    const hasCompleteUnit =
-                      Boolean(
-                        product.unitCode ??
-                          product.unitId,
-                      ) &&
-                      Boolean(
-                        product.unitName,
-                      ) &&
-                      Boolean(
-                        product.unitAbbreviation,
-                      );
+                  const hasCompleteUnit =
+                    Boolean(product.unitCode ?? product.unitId) &&
+                    Boolean(product.unitName) &&
+                    Boolean(product.unitAbbreviation);
 
-                    const selectedUnitCode =
-                      unitSelections[
-                        product.id
-                      ] ??
-                      product.unitCode ??
-                      product.unitId ??
-                      "";
+                  const selectedUnitCode =
+                    unitSelections[product.id] ??
+                    product.unitCode ??
+                    product.unitId ??
+                    "";
 
-                    return (
-                      <tr key={product.id}>
-                        <td>
-                          <div className="product-cell">
-                            <strong>
-                              {product.name}
-                            </strong>
+                  return (
+                    <tr key={product.id}>
+                      <td>
+                        <div className="product-cell">
+                          <strong>{product.name}</strong>
 
-                            <span>
-                              {product.sku}
-                            </span>
+                          <span>{product.sku}</span>
+                        </div>
+                      </td>
+
+                      <td>
+                        <ProductBarcode value={product.barcode} />
+                      </td>
+
+                      <td>{product.category}</td>
+
+                      <td>
+                        {hasCompleteUnit ? (
+                          <div className="inventory-unit-cell">
+                            <strong>{product.unitName}</strong>
+
+                            <span>{product.unitAbbreviation}</span>
                           </div>
-                        </td>
-
-                        <td>
-                          <ProductBarcode
-                            value={
-                              product.barcode
-                            }
-                          />
-                        </td>
-
-                        <td>
-                          {product.category}
-                        </td>
-
-                        <td>
-                          {hasCompleteUnit ? (
-                            <div className="inventory-unit-cell">
-                              <strong>
-                                {
-                                  product.unitName
-                                }
-                              </strong>
-
-                              <span>
-                                {
-                                  product.unitAbbreviation
-                                }
-                              </span>
-                            </div>
-                          ) : canAssignUnits ? (
-                            <div className="unit-assignment-control">
-                              <select
-                                value={
-                                  selectedUnitCode
-                                }
-                                onChange={(
-                                  event,
-                                ) =>
-                                  handleUnitSelectionChange(
-                                    product.id,
-                                    event
-                                      .target
-                                      .value,
-                                  )
-                                }
-                                disabled={
-                                  isBusy ||
-                                  isLoadingUnits ||
-                                  Boolean(
-                                    unitLoadError,
-                                  )
-                                }
-                                aria-label={`Unit for ${product.name}`}
-                              >
-                                <option value="">
-                                  {isLoadingUnits
-                                    ? "Loading..."
-                                    : "Select unit"}
-                                </option>
-
-                                {activeUnits.map(
-                                  (unit) => (
-                                    <option
-                                      key={
-                                        unit.id
-                                      }
-                                      value={
-                                        unit.code ??
-                                        unit.id
-                                      }
-                                    >
-                                      {
-                                        unit.name
-                                      }{" "}
-                                      (
-                                      {
-                                        unit.abbreviation
-                                      }
-                                      )
-                                    </option>
-                                  ),
-                                )}
-                              </select>
-
-                              <button
-                                type="button"
-                                className="assign-unit-button"
-                                onClick={() =>
-                                  handleAssignUnit(
-                                    product,
-                                  )
-                                }
-                                disabled={
-                                  isBusy ||
-                                  isLoadingUnits ||
-                                  !selectedUnitCode ||
-                                  Boolean(
-                                    unitLoadError,
-                                  )
-                                }
-                              >
-                                {isBusy
-                                  ? "Assigning..."
-                                  : "Assign Unit"}
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="unit-not-assigned">
-                              Not assigned
-                            </span>
-                          )}
-                        </td>
-
-                        <td>
-                          <div className="stock-cell">
-                            <strong>
-                              {Number(
-                                product.quantity ??
-                                  0,
-                              )}
-                            </strong>
-
-                            <span>
-                              Reorder at{" "}
-                              {Number(
-                                product.reorderLevel ??
-                                  0,
-                              )}
-                            </span>
-                          </div>
-                        </td>
-
-                        <td>
-                          <span
-                            className={`status-badge ${status.className}`}
-                          >
-                            {status.label}
-                          </span>
-                        </td>
-
-                        <td>
-                          {formatCurrency(
-                            product.price,
-                          )}
-                        </td>
-
-                        <td>
-                          {formatCurrency(
-                            Number(
-                              product.quantity ??
-                                0,
-                            ) *
-                              Number(
-                                product.price ??
-                                  0,
-                              ),
-                          )}
-                        </td>
-
-                        {canAdjustStock && (
-                          <td>
-                            <div className="table-actions">
-                              <button
-                                type="button"
-                                className="stock-in-button"
-                                onClick={() =>
-                                  handleStockAdjustment(
-                                    product.id,
-                                    "IN",
-                                  )
-                                }
-                                disabled={
-                                  isBusy
-                                }
-                              >
-                                {isBusy
-                                  ? "Please wait..."
-                                  : "Stock In"}
-                              </button>
-
-                              <button
-                                type="button"
-                                className="stock-out-button"
-                                onClick={() =>
-                                  handleStockAdjustment(
-                                    product.id,
-                                    "OUT",
-                                  )
-                                }
-                                disabled={
-                                  isBusy ||
-                                  Number(
-                                    product.quantity ??
-                                      0,
-                                  ) === 0
-                                }
-                              >
-                                Stock Out
-                              </button>
-                            </div>
-                          </td>
-                        )}
-
-                        {canDeleteProducts && (
-                          <td>
-                            <button
-                              type="button"
-                              className="delete-button"
-                              onClick={() =>
-                                handleDelete(
+                        ) : canAssignUnits ? (
+                          <div className="unit-assignment-control">
+                            <select
+                              value={selectedUnitCode}
+                              onChange={(event) =>
+                                handleUnitSelectionChange(
                                   product.id,
+                                  event.target.value,
                                 )
                               }
                               disabled={
-                                isBusy
+                                isBusy ||
+                                isLoadingUnits ||
+                                Boolean(unitLoadError)
+                              }
+                              aria-label={`Unit for ${product.name}`}
+                            >
+                              <option value="">
+                                {isLoadingUnits ? "Loading..." : "Select unit"}
+                              </option>
+
+                              {activeUnits.map((unit) => (
+                                <option
+                                  key={unit.id}
+                                  value={unit.code ?? unit.id}
+                                >
+                                  {unit.name} ({unit.abbreviation})
+                                </option>
+                              ))}
+                            </select>
+
+                            <button
+                              type="button"
+                              className="assign-unit-button"
+                              onClick={() => handleAssignUnit(product)}
+                              disabled={
+                                isBusy ||
+                                isLoadingUnits ||
+                                !selectedUnitCode ||
+                                Boolean(unitLoadError)
                               }
                             >
-                              Delete
+                              {isBusy ? "Assigning..." : "Assign Unit"}
                             </button>
-                          </td>
+                          </div>
+                        ) : (
+                          <span className="unit-not-assigned">
+                            Not assigned
+                          </span>
                         )}
-                      </tr>
-                    );
-                  },
-                )}
+                      </td>
+
+                      <td>
+                        <div className="stock-cell">
+                          <strong>{Number(product.quantity ?? 0)}</strong>
+
+                          <span>
+                            Reorder at {Number(product.reorderLevel ?? 0)}
+                          </span>
+                        </div>
+                      </td>
+
+                      <td>
+                        <span className={`status-badge ${status.className}`}>
+                          {status.label}
+                        </span>
+                      </td>
+
+                      <td>{formatCurrency(product.price)}</td>
+
+                      <td>
+                        {formatCurrency(
+                          Number(product.quantity ?? 0) *
+                            Number(product.price ?? 0),
+                        )}
+                      </td>
+
+                      {canAdjustStock && (
+                        <td>
+                          <div className="table-actions">
+                            <button
+                              type="button"
+                              className="stock-in-button"
+                              onClick={() => handleOpenStockIn(product)}
+                              disabled={
+                                isBusy ||
+                                (product.status ?? PRODUCT_STATUSES.ACTIVE) !==
+                                  PRODUCT_STATUSES.ACTIVE
+                              }
+                              title={
+                                (product.status ?? PRODUCT_STATUSES.ACTIVE) ===
+                                PRODUCT_STATUSES.ACTIVE
+                                  ? `Receive stock for ${product.name}`
+                                  : "Inactive products cannot receive stock"
+                              }
+                            >
+                              Stock In
+                            </button>
+
+                            <button
+                              type="button"
+                              className="stock-out-button"
+                              onClick={() =>
+                                handleStockAdjustment(product.id, "OUT")
+                              }
+                              disabled={
+                                isBusy || Number(product.quantity ?? 0) === 0
+                              }
+                            >
+                              Stock Out
+                            </button>
+                          </div>
+                        </td>
+                      )}
+
+                      {canDeleteProducts && (
+                        <td>
+                          <button
+                            type="button"
+                            className="delete-button"
+                            onClick={() => handleDelete(product.id)}
+                            disabled={isBusy}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1028,13 +685,9 @@ function Inventory({
 }
 
 function getStockStatus(product) {
-  const quantity = Number(
-    product.quantity ?? 0,
-  );
+  const quantity = Number(product.quantity ?? 0);
 
-  const reorderLevel = Number(
-    product.reorderLevel ?? 0,
-  );
+  const reorderLevel = Number(product.reorderLevel ?? 0);
 
   if (quantity === 0) {
     return {
@@ -1060,15 +713,10 @@ function getStockStatus(product) {
 }
 
 function formatCurrency(value) {
-  return new Intl.NumberFormat(
-    "en-PH",
-    {
-      style: "currency",
-      currency: "PHP",
-    },
-  ).format(
-    Number(value ?? 0),
-  );
+  return new Intl.NumberFormat("en-PH", {
+    style: "currency",
+    currency: "PHP",
+  }).format(Number(value ?? 0));
 }
 
 export default Inventory;

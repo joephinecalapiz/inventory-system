@@ -125,3 +125,14 @@ export function ProductsIcon() {
     </svg>
   );
 }
+
+export function StockInIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 7h16v13H4V7Z" />
+      <path d="M8 7V4h8v3" />
+      <path d="M12 10v7" />
+      <path d="m9 14 3 3 3-3" />
+    </svg>
+  );
+}
