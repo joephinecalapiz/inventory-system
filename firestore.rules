@@ -817,6 +817,14 @@ function canReadSuppliers() {
   ]);
 }
 
+function canUpdateSupplierPurchaseHistory() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+}
+
 function isValidSupplierStatus(status) {
   return status in [
     "ACTIVE",
@@ -949,6 +957,37 @@ function onlySupplierStatusFieldsChanged() {
     ]);
 }
 
+function onlySupplierPurchaseHistoryFieldsChanged() {
+  return request.resource.data
+    .diff(resource.data)
+    .affectedKeys()
+    .hasOnly([
+      "hasPurchaseHistory",
+      "purchaseOrderCount",
+      "lastPurchaseOrderId",
+      "lastPurchaseOrderNumber",
+      "lastPurchaseOrderSubmittedAt",
+      "updatedBy",
+      "updatedAt"
+    ]);
+}
+
+function submittedPurchaseOrderMatchesSupplier(
+  supplierId,
+  purchaseOrderId,
+  poNumber
+) {
+  let purchaseOrderAfter = getAfter(
+    /databases/$(database)/documents/purchaseOrders/$(purchaseOrderId)
+  ).data;
+
+  return purchaseOrderAfter.status == "SUBMITTED"
+    && purchaseOrderAfter.supplierId == supplierId
+    && purchaseOrderAfter.poNumber == poNumber
+    && purchaseOrderAfter.submittedBy == request.auth.uid
+    && purchaseOrderAfter.submittedAt == request.time;
+}
+
 /*
  * SUPPLIER MASTER DATA
  */
@@ -1049,64 +1088,110 @@ match /suppliers/{supplierId} {
   /*
    * Update supplier contact and payment details.
    */
-  allow update: if isSupplierManager()
-
-    && isValidSupplierData(
+  allow update: if isValidSupplierData(
       request.resource.data
     )
 
     && (
       /*
-       * Master-data update.
+       * Superadmin/Admin supplier master-data
+       * and status management.
        */
       (
-        onlySupplierMasterFieldsChanged()
+        isSupplierManager()
 
-        && request.resource.data.supplierCode
-          == resource.data.supplierCode
+        && (
+          (
+            onlySupplierMasterFieldsChanged()
 
-        && request.resource.data.status
-          == resource.data.status
+            && request.resource.data.supplierCode
+              == resource.data.supplierCode
 
-        && request.resource.data.hasPurchaseHistory
-          == resource.data.hasPurchaseHistory
+            && request.resource.data.status
+              == resource.data.status
 
-        && request.resource.data.purchaseOrderCount
-          == resource.data.purchaseOrderCount
+            && request.resource.data.hasPurchaseHistory
+              == resource.data.hasPurchaseHistory
 
-        && request.resource.data.createdBy
-          == resource.data.createdBy
+            && request.resource.data.purchaseOrderCount
+              == resource.data.purchaseOrderCount
 
-        && request.resource.data.createdAt
-          == resource.data.createdAt
+            && request.resource.data.createdBy
+              == resource.data.createdBy
 
-        && request.resource.data.updatedBy
-          == request.auth.uid
+            && request.resource.data.createdAt
+              == resource.data.createdAt
 
-        && request.resource.data.updatedAt
-          == request.time
+            && request.resource.data.updatedBy
+              == request.auth.uid
+
+            && request.resource.data.updatedAt
+              == request.time
+          )
+
+          ||
+
+          (
+            onlySupplierStatusFieldsChanged()
+
+            && request.resource.data.status
+              != resource.data.status
+
+            && request.resource.data.keys().hasAll([
+              "statusChangedBy",
+              "statusChangedAt"
+            ])
+
+            && request.resource.data.statusChangedBy
+              == request.auth.uid
+
+            && request.resource.data.statusChangedAt
+              == request.time
+
+            && request.resource.data.updatedBy
+              == request.auth.uid
+
+            && request.resource.data.updatedAt
+              == request.time
+          )
+        )
       )
 
       ||
 
       /*
-       * Activate or deactivate the supplier.
+       * Purchase Order submission updates the
+       * supplier's permanent purchase history.
        */
       (
-        onlySupplierStatusFieldsChanged()
+        canUpdateSupplierPurchaseHistory()
 
-        && request.resource.data.status
-          != resource.data.status
+        && onlySupplierPurchaseHistoryFieldsChanged()
 
-        && request.resource.data.keys().hasAll([
-          "statusChangedBy",
-          "statusChangedAt"
-        ])
+        && resource.data.status == "ACTIVE"
 
-        && request.resource.data.statusChangedBy
-          == request.auth.uid
+        && request.resource.data.status == "ACTIVE"
 
-        && request.resource.data.statusChangedAt
+        && request.resource.data.hasPurchaseHistory
+          == true
+
+        && request.resource.data.purchaseOrderCount
+          == resource.data.purchaseOrderCount + 1
+
+        && request.resource.data.lastPurchaseOrderId
+          is string
+
+        && request.resource.data.lastPurchaseOrderId.size()
+          >= 1
+
+        && request.resource.data.lastPurchaseOrderNumber
+          is string
+
+        && request.resource.data.lastPurchaseOrderNumber.matches(
+          "^PO-[0-9]{4}-[0-9]{6}$"
+        )
+
+        && request.resource.data.lastPurchaseOrderSubmittedAt
           == request.time
 
         && request.resource.data.updatedBy
@@ -1114,6 +1199,12 @@ match /suppliers/{supplierId} {
 
         && request.resource.data.updatedAt
           == request.time
+
+        && submittedPurchaseOrderMatchesSupplier(
+          supplierId,
+          request.resource.data.lastPurchaseOrderId,
+          request.resource.data.lastPurchaseOrderNumber
+        )
       )
     );
 
@@ -1222,6 +1313,54 @@ function canManagePurchaseOrderDrafts() {
   ]);
 }
 
+function isPurchaseOrderApprover() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN"
+  ]);
+}
+
+function isValidPurchaseOrderStatus(status) {
+  return status in [
+    "DRAFT",
+    "SUBMITTED",
+    "APPROVED",
+    "PARTIALLY_RECEIVED",
+    "RECEIVED",
+    "CANCELLED"
+  ];
+}
+
+function supplierHistoryUpdatedForSubmission(
+  purchaseOrderId,
+  supplierId,
+  poNumber
+) {
+  let supplierBefore = get(
+    /databases/$(database)/documents/suppliers/$(supplierId)
+  ).data;
+
+  let supplierAfter = getAfter(
+    /databases/$(database)/documents/suppliers/$(supplierId)
+  ).data;
+
+  return supplierBefore.status == "ACTIVE"
+    && supplierAfter.status == "ACTIVE"
+    && supplierAfter.hasPurchaseHistory == true
+    && supplierAfter.purchaseOrderCount
+      == supplierBefore.purchaseOrderCount + 1
+    && supplierAfter.lastPurchaseOrderId
+      == purchaseOrderId
+    && supplierAfter.lastPurchaseOrderNumber
+      == poNumber
+    && supplierAfter.lastPurchaseOrderSubmittedAt
+      == request.time
+    && supplierAfter.updatedBy
+      == request.auth.uid
+    && supplierAfter.updatedAt
+      == request.time;
+}
+
 function isValidPurchaseOrderPaymentTerm(paymentTerm) {
   return paymentTerm in [
     "CASH_ON_DELIVERY",
@@ -1295,6 +1434,19 @@ function isValidPurchaseOrderHeader(data) {
 
       "notes",
       "revision",
+
+      "submittedBy",
+      "submittedByName",
+      "submittedAt",
+
+      "approvedBy",
+      "approvedByName",
+      "approvedAt",
+
+      "cancellationReason",
+      "cancelledBy",
+      "cancelledByName",
+      "cancelledAt",
 
       "createdBy",
       "createdAt",
@@ -1399,7 +1551,9 @@ function isValidPurchaseOrderHeader(data) {
         >= data.orderDateKey
     )
 
-    && data.status == "DRAFT"
+    && isValidPurchaseOrderStatus(
+      data.status
+    )
 
     && data.itemCount is int
     && data.itemCount >= 1
@@ -1576,7 +1730,9 @@ function isValidPurchaseOrderItem(
       "^PO-[0-9]{4}-[0-9]{6}$"
     )
 
-    && data.poStatus == "DRAFT"
+    && isValidPurchaseOrderStatus(
+      data.poStatus
+    )
 
     && data.productName is string
     && data.productName.size() >= 1
@@ -1666,6 +1822,8 @@ match /purchaseOrders/{purchaseOrderId} {
    */
   allow create: if canManagePurchaseOrderDrafts()
 
+    && request.resource.data.status == "DRAFT"
+
     && isValidPurchaseOrderHeader(
       request.resource.data
     )
@@ -1683,7 +1841,20 @@ match /purchaseOrders/{purchaseOrderId} {
       == request.time
 
     && request.resource.data.revision
-      == 1;
+      == 1
+
+    && !request.resource.data.keys().hasAny([
+      "submittedBy",
+      "submittedByName",
+      "submittedAt",
+      "approvedBy",
+      "approvedByName",
+      "approvedAt",
+      "cancellationReason",
+      "cancelledBy",
+      "cancelledByName",
+      "cancelledAt"
+    ]);
 
   /*
    * Only Draft Purchase Orders may be edited.
@@ -1768,6 +1939,171 @@ match /purchaseOrders/{purchaseOrderId} {
       == request.time;
 
   /*
+   * Submit a Draft Purchase Order for approval.
+   */
+  allow update: if canManagePurchaseOrderDrafts()
+
+    && resource.data.status == "DRAFT"
+
+    && request.resource.data.status == "SUBMITTED"
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "submittedBy",
+        "submittedByName",
+        "submittedAt",
+        "revision",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.submittedBy
+      == request.auth.uid
+
+    && request.resource.data.submittedByName
+      is string
+
+    && request.resource.data.submittedByName.size()
+      >= 1
+
+    && request.resource.data.submittedByName.size()
+      <= 150
+
+    && request.resource.data.submittedAt
+      == request.time
+
+    && request.resource.data.revision
+      == resource.data.revision + 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time
+
+    && supplierHistoryUpdatedForSubmission(
+      purchaseOrderId,
+      resource.data.supplierId,
+      resource.data.poNumber
+    );
+
+  /*
+   * Approve a Submitted Purchase Order.
+   */
+  allow update: if isPurchaseOrderApprover()
+
+    && resource.data.status == "SUBMITTED"
+
+    && request.resource.data.status == "APPROVED"
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "approvedBy",
+        "approvedByName",
+        "approvedAt",
+        "revision",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.approvedBy
+      == request.auth.uid
+
+    && request.resource.data.approvedByName
+      is string
+
+    && request.resource.data.approvedByName.size()
+      >= 1
+
+    && request.resource.data.approvedByName.size()
+      <= 150
+
+    && request.resource.data.approvedAt
+      == request.time
+
+    && request.resource.data.revision
+      == resource.data.revision + 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
+   * Cancel a Draft, Submitted, or Approved PO
+   * before any goods receiving takes place.
+   */
+  allow update: if isPurchaseOrderApprover()
+
+    && resource.data.status in [
+      "DRAFT",
+      "SUBMITTED",
+      "APPROVED"
+    ]
+
+    && request.resource.data.status == "CANCELLED"
+
+    && resource.data.hasReceivingHistory == false
+
+    && resource.data.totalReceivedQuantity == 0
+
+    && resource.data.goodsReceiptCount == 0
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "cancellationReason",
+        "cancelledBy",
+        "cancelledByName",
+        "cancelledAt",
+        "revision",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.cancellationReason
+      is string
+
+    && request.resource.data.cancellationReason.size()
+      >= 1
+
+    && request.resource.data.cancellationReason.size()
+      <= 500
+
+    && request.resource.data.cancelledBy
+      == request.auth.uid
+
+    && request.resource.data.cancelledByName
+      is string
+
+    && request.resource.data.cancelledByName.size()
+      >= 1
+
+    && request.resource.data.cancelledByName.size()
+      <= 150
+
+    && request.resource.data.cancelledAt
+      == request.time
+
+    && request.resource.data.revision
+      == resource.data.revision + 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  /*
    * Purchase Order headers remain permanent.
    */
   allow delete: if false;
@@ -1780,6 +2116,8 @@ match /purchaseOrders/{purchaseOrderId} {
     allow get, list: if canReadPurchaseOrders();
 
     allow create: if canManagePurchaseOrderDrafts()
+
+      && request.resource.data.poStatus == "DRAFT"
 
       && isValidPurchaseOrderItem(
         request.resource.data,
@@ -1858,6 +2196,95 @@ match /purchaseOrders/{purchaseOrderId} {
 
       && request.resource.data.createdAt
         == resource.data.createdAt
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    /*
+     * Keep item snapshots synchronized when the
+     * parent PO moves through its workflow.
+     */
+    allow update: if canManagePurchaseOrderDrafts()
+
+      && resource.data.poStatus == "DRAFT"
+
+      && request.resource.data.poStatus == "SUBMITTED"
+
+      && request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasOnly([
+          "poStatus",
+          "updatedBy",
+          "updatedAt"
+        ])
+
+      && isValidPurchaseOrderItem(
+        request.resource.data,
+        purchaseOrderId,
+        itemId
+      )
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    allow update: if isPurchaseOrderApprover()
+
+      && resource.data.poStatus == "SUBMITTED"
+
+      && request.resource.data.poStatus == "APPROVED"
+
+      && request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasOnly([
+          "poStatus",
+          "updatedBy",
+          "updatedAt"
+        ])
+
+      && isValidPurchaseOrderItem(
+        request.resource.data,
+        purchaseOrderId,
+        itemId
+      )
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    allow update: if isPurchaseOrderApprover()
+
+      && resource.data.poStatus in [
+        "DRAFT",
+        "SUBMITTED",
+        "APPROVED"
+      ]
+
+      && request.resource.data.poStatus == "CANCELLED"
+
+      && request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasOnly([
+          "poStatus",
+          "updatedBy",
+          "updatedAt"
+        ])
+
+      && isValidPurchaseOrderItem(
+        request.resource.data,
+        purchaseOrderId,
+        itemId
+      )
 
       && request.resource.data.updatedBy
         == request.auth.uid

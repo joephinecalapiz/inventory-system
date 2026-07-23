@@ -288,7 +288,7 @@
 }
 
 .purchase-order-list-table {
-  min-width: 1150px;
+  min-width: 1300px;
 }
 
 .purchase-order-items-table th,
@@ -546,4 +546,52 @@ textarea:disabled {
     width: 100%;
     min-width: 0;
   }
+}
+
+.purchase-order-workflow-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 210px;
+}
+
+.purchase-order-submit-button,
+.purchase-order-approve-button,
+.purchase-order-cancel-button {
+  min-height: 32px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.purchase-order-submit-button {
+  border: 1px solid #b9d3e8;
+  background: #f1f7fc;
+  color: #175b8f;
+}
+
+.purchase-order-submit-button:hover:not(:disabled) {
+  background: #e5f1fa;
+}
+
+.purchase-order-approve-button {
+  border: 1px solid #86cda0;
+  background: #effaf3;
+  color: #18753a;
+}
+
+.purchase-order-approve-button:hover:not(:disabled) {
+  background: #e3f6ea;
+}
+
+.purchase-order-cancel-button {
+  border: 1px solid #e9a0a0;
+  background: #fff2f2;
+  color: #b42318;
+}
+
+.purchase-order-cancel-button:hover:not(:disabled) {
+  background: #ffe7e7;
 }

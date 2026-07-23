@@ -26,8 +26,11 @@ import { subscribeToProducts } from "../services/productService";
 import { subscribeToActiveSuppliers } from "../services/supplierService";
 
 import {
+  approvePurchaseOrder,
+  cancelPurchaseOrder,
   createPurchaseOrderDraft,
   getPurchaseOrderDetails,
+  submitPurchaseOrder,
   subscribeToPurchaseOrders,
   updatePurchaseOrderDraft,
 } from "../services/purchaseOrderService";
@@ -110,6 +113,16 @@ function PurchaseOrders({ currentUserRole }) {
     USER_ROLES.ADMIN,
     USER_ROLES.INVENTORY_STAFF,
   ].includes(currentUserRole);
+
+  const canApprovePurchaseOrders = [
+    USER_ROLES.SUPERADMIN,
+    USER_ROLES.ADMIN,
+  ].includes(currentUserRole);
+
+  const canCancelPurchaseOrders = canApprovePurchaseOrders;
+
+  const canUseWorkflowActions =
+    canManageDrafts || canApprovePurchaseOrders || canCancelPurchaseOrders;
 
   const isReadOnly = currentUserRole === USER_ROLES.AUDITOR;
 
@@ -833,6 +846,249 @@ function PurchaseOrders({ currentUserRole }) {
     }
   }
 
+  async function handleSubmitForApproval(purchaseOrder) {
+    if (!canManageDrafts) {
+      setMessage({
+        type: "error",
+        text: "Your role cannot submit Purchase Orders for approval.",
+      });
+
+      return;
+    }
+
+    if (
+      getPurchaseOrderStatus(purchaseOrder) !==
+      PURCHASE_ORDER_STATUSES.DRAFT
+    ) {
+      setMessage({
+        type: "error",
+        text: "Only Draft Purchase Orders can be submitted.",
+      });
+
+      return;
+    }
+
+    const shouldContinue = window.confirm(
+      [
+        `Submit ${purchaseOrder.poNumber} for approval?`,
+        "",
+        `Supplier: ${purchaseOrder.supplierName}`,
+        `Items: ${Number(purchaseOrder.itemCount ?? 0)}`,
+        `Grand total: ${formatCurrency(purchaseOrder.grandTotal)}`,
+        "",
+        "After submission, the Purchase Order can no longer be edited.",
+      ].join("\n"),
+    );
+
+    if (!shouldContinue) {
+      return;
+    }
+
+    try {
+      setBusyPurchaseOrderId(purchaseOrder.id);
+
+      setMessage({
+        type: "",
+        text: "",
+      });
+
+      const result = await submitPurchaseOrder(purchaseOrder.id);
+
+      if (editingPurchaseOrderId === purchaseOrder.id) {
+        resetForm();
+      }
+
+      setMessage({
+        type: "success",
+        text: `${result.poNumber} was submitted for approval successfully.`,
+      });
+    } catch (error) {
+      console.error("Unable to submit Purchase Order:", error);
+
+      setMessage({
+        type: "error",
+        text:
+          error?.message ||
+          "Unable to submit the Purchase Order for approval.",
+      });
+    } finally {
+      setBusyPurchaseOrderId("");
+    }
+  }
+
+  async function handleApprovePurchaseOrder(purchaseOrder) {
+    if (!canApprovePurchaseOrders) {
+      setMessage({
+        type: "error",
+        text: "Only a Superadmin or Admin can approve Purchase Orders.",
+      });
+
+      return;
+    }
+
+    if (
+      getPurchaseOrderStatus(purchaseOrder) !==
+      PURCHASE_ORDER_STATUSES.SUBMITTED
+    ) {
+      setMessage({
+        type: "error",
+        text: "Only Submitted Purchase Orders can be approved.",
+      });
+
+      return;
+    }
+
+    const shouldContinue = window.confirm(
+      [
+        `Approve ${purchaseOrder.poNumber}?`,
+        "",
+        `Supplier: ${purchaseOrder.supplierName}`,
+        `Grand total: ${formatCurrency(purchaseOrder.grandTotal)}`,
+        "",
+        "An approved Purchase Order becomes eligible for goods receiving.",
+      ].join("\n"),
+    );
+
+    if (!shouldContinue) {
+      return;
+    }
+
+    try {
+      setBusyPurchaseOrderId(purchaseOrder.id);
+
+      setMessage({
+        type: "",
+        text: "",
+      });
+
+      const result = await approvePurchaseOrder(purchaseOrder.id);
+
+      setMessage({
+        type: "success",
+        text: `${result.poNumber} was approved successfully.`,
+      });
+    } catch (error) {
+      console.error("Unable to approve Purchase Order:", error);
+
+      setMessage({
+        type: "error",
+        text: error?.message || "Unable to approve the Purchase Order.",
+      });
+    } finally {
+      setBusyPurchaseOrderId("");
+    }
+  }
+
+  async function handleCancelPurchaseOrder(purchaseOrder) {
+    if (!canCancelPurchaseOrders) {
+      setMessage({
+        type: "error",
+        text: "Only a Superadmin or Admin can cancel Purchase Orders.",
+      });
+
+      return;
+    }
+
+    const status = getPurchaseOrderStatus(purchaseOrder);
+
+    const canCancelStatus = [
+      PURCHASE_ORDER_STATUSES.DRAFT,
+      PURCHASE_ORDER_STATUSES.SUBMITTED,
+      PURCHASE_ORDER_STATUSES.APPROVED,
+    ].includes(status);
+
+    const hasReceivingHistory =
+      Boolean(purchaseOrder.hasReceivingHistory) ||
+      Number(purchaseOrder.totalReceivedQuantity ?? 0) > 0 ||
+      Number(purchaseOrder.goodsReceiptCount ?? 0) > 0;
+
+    if (!canCancelStatus || hasReceivingHistory) {
+      setMessage({
+        type: "error",
+        text: "This Purchase Order can no longer be cancelled.",
+      });
+
+      return;
+    }
+
+    const cancellationReasonInput = window.prompt(
+      `Enter the cancellation reason for ${purchaseOrder.poNumber}:`,
+    );
+
+    if (cancellationReasonInput === null) {
+      return;
+    }
+
+    const cancellationReason = cancellationReasonInput.trim();
+
+    if (!cancellationReason) {
+      setMessage({
+        type: "error",
+        text: "A cancellation reason is required.",
+      });
+
+      return;
+    }
+
+    if (
+      cancellationReason.length >
+      PURCHASE_ORDER_LIMITS.CANCELLATION_REASON_MAX_LENGTH
+    ) {
+      setMessage({
+        type: "error",
+        text: `Cancellation reason cannot exceed ${PURCHASE_ORDER_LIMITS.CANCELLATION_REASON_MAX_LENGTH} characters.`,
+      });
+
+      return;
+    }
+
+    const shouldContinue = window.confirm(
+      [
+        `Cancel ${purchaseOrder.poNumber}?`,
+        "",
+        `Reason: ${cancellationReason}`,
+        "",
+        "This action cannot be reversed.",
+      ].join("\n"),
+    );
+
+    if (!shouldContinue) {
+      return;
+    }
+
+    try {
+      setBusyPurchaseOrderId(purchaseOrder.id);
+
+      setMessage({
+        type: "",
+        text: "",
+      });
+
+      const result = await cancelPurchaseOrder(
+        purchaseOrder.id,
+        cancellationReason,
+      );
+
+      if (editingPurchaseOrderId === purchaseOrder.id) {
+        resetForm();
+      }
+
+      setMessage({
+        type: "success",
+        text: `${result.poNumber} was cancelled successfully.`,
+      });
+    } catch (error) {
+      console.error("Unable to cancel Purchase Order:", error);
+
+      setMessage({
+        type: "error",
+        text: error?.message || "Unable to cancel the Purchase Order.",
+      });
+    } finally {
+      setBusyPurchaseOrderId("");
+    }
+  }
+
   function handleClearForm() {
     const hasEnteredData =
       form.supplierId ||
@@ -1383,7 +1639,7 @@ function PurchaseOrders({ currentUserRole }) {
                   <th>Quantity</th>
                   <th>Grand Total</th>
                   <th>Status</th>
-                  {canManageDrafts && <th>Action</th>}
+                  {canUseWorkflowActions && <th>Actions</th>}
                 </tr>
               </thead>
 
@@ -1393,6 +1649,27 @@ function PurchaseOrders({ currentUserRole }) {
 
                   const isBusy =
                     busyPurchaseOrderId === purchaseOrder.id;
+
+                  const hasReceivingHistory =
+                    Boolean(purchaseOrder.hasReceivingHistory) ||
+                    Number(purchaseOrder.totalReceivedQuantity ?? 0) > 0 ||
+                    Number(purchaseOrder.goodsReceiptCount ?? 0) > 0;
+
+                  const canCancelThisOrder =
+                    canCancelPurchaseOrders &&
+                    [
+                      PURCHASE_ORDER_STATUSES.DRAFT,
+                      PURCHASE_ORDER_STATUSES.SUBMITTED,
+                      PURCHASE_ORDER_STATUSES.APPROVED,
+                    ].includes(status) &&
+                    !hasReceivingHistory;
+
+                  const hasVisibleWorkflowAction =
+                    (status === PURCHASE_ORDER_STATUSES.DRAFT &&
+                      canManageDrafts) ||
+                    (status === PURCHASE_ORDER_STATUSES.SUBMITTED &&
+                      canApprovePurchaseOrders) ||
+                    canCancelThisOrder;
 
                   return (
                     <tr key={purchaseOrder.id}>
@@ -1437,22 +1714,74 @@ function PurchaseOrders({ currentUserRole }) {
                         </span>
                       </td>
 
-                      {canManageDrafts && (
+                      {canUseWorkflowActions && (
                         <td>
-                          {status === PURCHASE_ORDER_STATUSES.DRAFT ? (
-                            <button
-                              type="button"
-                              className="purchase-order-edit-button"
-                              onClick={() => handleEditDraft(purchaseOrder)}
-                              disabled={isBusy || isSaving}
-                            >
-                              {isBusy ? "Loading..." : "Edit Draft"}
-                            </button>
-                          ) : (
-                            <span className="purchase-order-locked-label">
-                              Locked
-                            </span>
-                          )}
+                          <div className="purchase-order-workflow-actions">
+                            {status === PURCHASE_ORDER_STATUSES.DRAFT &&
+                              canManageDrafts && (
+                                <>
+                                  <button
+                                    type="button"
+                                    className="purchase-order-edit-button"
+                                    onClick={() =>
+                                      handleEditDraft(purchaseOrder)
+                                    }
+                                    disabled={isBusy || isSaving}
+                                  >
+                                    {isBusy ? "Working..." : "Edit Draft"}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="purchase-order-submit-button"
+                                    onClick={() =>
+                                      handleSubmitForApproval(purchaseOrder)
+                                    }
+                                    disabled={isBusy || isSaving}
+                                  >
+                                    {isBusy ? "Working..." : "Submit"}
+                                  </button>
+                                </>
+                              )}
+
+                            {status === PURCHASE_ORDER_STATUSES.SUBMITTED &&
+                              canApprovePurchaseOrders && (
+                                <button
+                                  type="button"
+                                  className="purchase-order-approve-button"
+                                  onClick={() =>
+                                    handleApprovePurchaseOrder(purchaseOrder)
+                                  }
+                                  disabled={isBusy || isSaving}
+                                >
+                                  {isBusy ? "Working..." : "Approve"}
+                                </button>
+                              )}
+
+                            {canCancelThisOrder && (
+                              <button
+                                type="button"
+                                className="purchase-order-cancel-button"
+                                onClick={() =>
+                                  handleCancelPurchaseOrder(purchaseOrder)
+                                }
+                                disabled={isBusy || isSaving}
+                              >
+                                {isBusy ? "Working..." : "Cancel"}
+                              </button>
+                            )}
+
+                            {!hasVisibleWorkflowAction && (
+                              <span className="purchase-order-locked-label">
+                                {status === PURCHASE_ORDER_STATUSES.SUBMITTED
+                                  ? "Pending approval"
+                                  : status ===
+                                      PURCHASE_ORDER_STATUSES.APPROVED
+                                    ? "Ready for receiving"
+                                    : "Locked"}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       )}
                     </tr>
@@ -1464,12 +1793,12 @@ function PurchaseOrders({ currentUserRole }) {
         )}
 
         <div className="purchase-order-list-notice">
-          <strong>Draft workflow</strong>
+          <strong>Purchase Order workflow</strong>
 
           <span>
-            Draft Purchase Orders may still be edited. Submission, approval,
-            cancellation, receiving, printing, and PDF generation will be added
-            in the next Purchase Order phases.
+            Draft Purchase Orders can be edited and submitted. Submitted orders
+            require Superadmin or Admin approval. Draft, Submitted, and Approved
+            orders may only be cancelled before goods receiving begins.
           </span>
         </div>
       </section>

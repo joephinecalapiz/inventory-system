@@ -22,6 +22,8 @@ import {
   PURCHASE_ORDER_STATUSES,
   calculatePurchaseOrderLineTotal,
   calculatePurchaseOrderTotals,
+  canCancelPurchaseOrder,
+  canTransitionPurchaseOrderStatus,
   formatPurchaseOrderNumber,
   getTodayPurchaseOrderDate,
   isPurchaseOrderEditable,
@@ -39,6 +41,11 @@ const PURCHASE_ORDER_EDITOR_ROLES = new Set([
   USER_ROLES.SUPERADMIN,
   USER_ROLES.ADMIN,
   USER_ROLES.INVENTORY_STAFF,
+]);
+
+const PURCHASE_ORDER_APPROVER_ROLES = new Set([
+  USER_ROLES.SUPERADMIN,
+  USER_ROLES.ADMIN,
 ]);
 
 function getPurchaseOrderPermissionError() {
@@ -85,6 +92,58 @@ async function getCurrentPurchaseOrderEditor() {
         userProfile.email ||
         currentUser.email ||
         "Inventory User",
+    ),
+
+    role: userProfile.role,
+  };
+}
+
+function getPurchaseOrderApprovalPermissionError() {
+  return new Error(
+    "Only an active Superadmin or Admin account can approve or cancel Purchase Orders.",
+  );
+}
+
+/**
+ * Confirms that the current user can approve or
+ * cancel Purchase Orders.
+ */
+async function getCurrentPurchaseOrderApprover() {
+  const currentUser = auth.currentUser;
+
+  if (!currentUser?.uid) {
+    throw new Error(
+      "You must be signed in to approve or cancel Purchase Orders.",
+    );
+  }
+
+  const userReference = doc(db, "users", currentUser.uid);
+
+  const userSnapshot = await getDoc(userReference);
+
+  if (!userSnapshot.exists()) {
+    throw new Error("Your Firestore user profile was not found.");
+  }
+
+  const userProfile = userSnapshot.data();
+
+  if (userProfile.status !== "ACTIVE") {
+    throw getPurchaseOrderApprovalPermissionError();
+  }
+
+  if (!PURCHASE_ORDER_APPROVER_ROLES.has(userProfile.role)) {
+    throw getPurchaseOrderApprovalPermissionError();
+  }
+
+  return {
+    userId: currentUser.uid,
+
+    displayName: normalizePurchaseOrderText(
+      userProfile.displayName ||
+        currentUser.displayName ||
+        userProfile.email ||
+        currentUser.email ||
+        "Approving User",
     ),
 
     role: userProfile.role,
@@ -1088,6 +1147,528 @@ export async function updatePurchaseOrderDraft(
     return result;
   } catch (error) {
     console.error("Unable to update Purchase Order draft:", error);
+
+    throw error;
+  }
+}
+function prepareCancellationReason(value) {
+  const cancellationReason = normalizePurchaseOrderText(value);
+
+  if (!cancellationReason) {
+    throw new Error("A cancellation reason is required.");
+  }
+
+  if (
+    cancellationReason.length >
+    PURCHASE_ORDER_LIMITS.CANCELLATION_REASON_MAX_LENGTH
+  ) {
+    throw new Error(
+      `Cancellation reason cannot exceed ${PURCHASE_ORDER_LIMITS.CANCELLATION_REASON_MAX_LENGTH} characters.`,
+    );
+  }
+
+  return cancellationReason;
+}
+
+function getWorkflowItemProductIds(purchaseOrder) {
+  const itemProductIds = Array.isArray(purchaseOrder?.itemProductIds)
+    ? purchaseOrder.itemProductIds
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  const itemCount = Number(purchaseOrder?.itemCount ?? 0);
+
+  if (
+    !Number.isInteger(itemCount) ||
+    itemCount < 1 ||
+    itemProductIds.length !== itemCount
+  ) {
+    throw new Error(
+      "The Purchase Order item summary is incomplete or inconsistent.",
+    );
+  }
+
+  if (new Set(itemProductIds).size !== itemProductIds.length) {
+    throw new Error(
+      "The Purchase Order contains duplicate product identifiers.",
+    );
+  }
+
+  return itemProductIds;
+}
+
+async function readWorkflowItems(
+  transaction,
+  purchaseOrderId,
+  purchaseOrder,
+  expectedStatus,
+) {
+  const itemProductIds = getWorkflowItemProductIds(purchaseOrder);
+
+  const itemRecords = [];
+
+  for (const productId of itemProductIds) {
+    const itemReference = doc(
+      db,
+      "purchaseOrders",
+      purchaseOrderId,
+      "items",
+      productId,
+    );
+
+    const itemSnapshot = await transaction.get(itemReference);
+
+    if (!itemSnapshot.exists()) {
+      throw new Error(
+        `A Purchase Order item is missing for product ${productId}.`,
+      );
+    }
+
+    const item = itemSnapshot.data();
+
+    if (
+      String(item.purchaseOrderId ?? "").trim() !== purchaseOrderId ||
+      String(item.productId ?? "").trim() !== productId
+    ) {
+      throw new Error(
+        "A Purchase Order item contains invalid document identifiers.",
+      );
+    }
+
+    if (String(item.poNumber ?? "").trim() !== purchaseOrder.poNumber) {
+      throw new Error(
+        "A Purchase Order item contains an invalid PO number snapshot.",
+      );
+    }
+
+    if (item.poStatus !== expectedStatus) {
+      throw new Error(
+        "A Purchase Order item status does not match the Purchase Order header.",
+      );
+    }
+
+    const orderedQuantity = Number(item.orderedQuantity ?? 0);
+    const receivedQuantity = Number(item.receivedQuantity ?? 0);
+    const remainingQuantity = Number(item.remainingQuantity ?? 0);
+
+    if (
+      !Number.isInteger(orderedQuantity) ||
+      orderedQuantity < 1 ||
+      !Number.isInteger(receivedQuantity) ||
+      receivedQuantity < 0 ||
+      !Number.isInteger(remainingQuantity) ||
+      remainingQuantity < 0 ||
+      receivedQuantity + remainingQuantity !== orderedQuantity
+    ) {
+      throw new Error(
+        `The quantities for ${item.productName || productId} are inconsistent.`,
+      );
+    }
+
+    itemRecords.push({
+      reference: itemReference,
+      data: item,
+    });
+  }
+
+  return itemRecords;
+}
+
+function updateWorkflowItemStatuses(
+  transaction,
+  itemRecords,
+  nextStatus,
+  currentUser,
+) {
+  for (const itemRecord of itemRecords) {
+    transaction.update(itemRecord.reference, {
+      poStatus: nextStatus,
+
+      updatedBy: currentUser.userId,
+
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+/**
+ * Submits a Draft Purchase Order for approval.
+ *
+ * Inventory Staff, Admin, and Superadmin may submit.
+ * The supplier's Purchase Order history starts here,
+ * not while the PO is still a draft.
+ */
+export async function submitPurchaseOrder(purchaseOrderId) {
+  const normalizedPurchaseOrderId = prepareDocumentId(
+    purchaseOrderId,
+    "Purchase Order ID",
+  );
+
+  const currentUser = await getCurrentPurchaseOrderEditor();
+
+  const purchaseOrderReference = doc(
+    db,
+    "purchaseOrders",
+    normalizedPurchaseOrderId,
+  );
+
+  let result = null;
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const purchaseOrderSnapshot = await transaction.get(
+        purchaseOrderReference,
+      );
+
+      if (!purchaseOrderSnapshot.exists()) {
+        throw new Error("The selected Purchase Order no longer exists.");
+      }
+
+      const purchaseOrder = purchaseOrderSnapshot.data();
+
+      if (
+        !canTransitionPurchaseOrderStatus(
+          purchaseOrder.status,
+          PURCHASE_ORDER_STATUSES.SUBMITTED,
+        )
+      ) {
+        throw new Error(
+          "Only a Draft Purchase Order can be submitted for approval.",
+        );
+      }
+
+      if (
+        purchaseOrder.hasReceivingHistory ||
+        Number(purchaseOrder.totalReceivedQuantity ?? 0) > 0 ||
+        Number(purchaseOrder.goodsReceiptCount ?? 0) > 0
+      ) {
+        throw new Error(
+          "A Purchase Order with receiving history cannot be submitted.",
+        );
+      }
+
+      const supplierId = prepareDocumentId(
+        purchaseOrder.supplierId,
+        "Supplier",
+      );
+
+      const supplierReference = doc(db, "suppliers", supplierId);
+
+      const supplierSnapshot = await transaction.get(supplierReference);
+
+      const supplierSnapshotData = validateSupplierSnapshot(supplierSnapshot);
+
+      if (
+        supplierSnapshotData.supplierCode !== purchaseOrder.supplierCode ||
+        supplierSnapshotData.supplierName !== purchaseOrder.supplierName
+      ) {
+        throw new Error(
+          "The Purchase Order supplier snapshot no longer matches the selected supplier.",
+        );
+      }
+
+      const itemRecords = await readWorkflowItems(
+        transaction,
+        normalizedPurchaseOrderId,
+        purchaseOrder,
+        PURCHASE_ORDER_STATUSES.DRAFT,
+      );
+
+      for (const itemRecord of itemRecords) {
+        if (
+          Number(itemRecord.data.receivedQuantity ?? 0) !== 0 ||
+          Number(itemRecord.data.remainingQuantity ?? 0) !==
+            Number(itemRecord.data.orderedQuantity ?? 0)
+        ) {
+          throw new Error(
+            "Draft Purchase Order items must not contain received quantities.",
+          );
+        }
+      }
+
+      const supplier = supplierSnapshot.data();
+
+      const storedPurchaseOrderCount = Number(supplier.purchaseOrderCount ?? 0);
+
+      const previousPurchaseOrderCount =
+        Number.isInteger(storedPurchaseOrderCount) &&
+        storedPurchaseOrderCount >= 0
+          ? storedPurchaseOrderCount
+          : 0;
+
+      transaction.update(purchaseOrderReference, {
+        status: PURCHASE_ORDER_STATUSES.SUBMITTED,
+
+        submittedBy: currentUser.userId,
+
+        submittedByName: currentUser.displayName,
+
+        submittedAt: serverTimestamp(),
+
+        revision: Number(purchaseOrder.revision ?? 1) + 1,
+
+        updatedBy: currentUser.userId,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      updateWorkflowItemStatuses(
+        transaction,
+        itemRecords,
+        PURCHASE_ORDER_STATUSES.SUBMITTED,
+        currentUser,
+      );
+
+      transaction.update(supplierReference, {
+        hasPurchaseHistory: true,
+
+        purchaseOrderCount: previousPurchaseOrderCount + 1,
+
+        lastPurchaseOrderId: normalizedPurchaseOrderId,
+
+        lastPurchaseOrderNumber: purchaseOrder.poNumber,
+
+        lastPurchaseOrderSubmittedAt: serverTimestamp(),
+
+        updatedBy: currentUser.userId,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      result = {
+        id: normalizedPurchaseOrderId,
+
+        poNumber: purchaseOrder.poNumber,
+
+        status: PURCHASE_ORDER_STATUSES.SUBMITTED,
+
+        supplierId,
+
+        supplierName: purchaseOrder.supplierName,
+
+        submittedBy: currentUser.userId,
+
+        submittedByName: currentUser.displayName,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    console.error("Unable to submit Purchase Order:", error);
+
+    throw error;
+  }
+}
+
+/**
+ * Approves a submitted Purchase Order.
+ *
+ * Only Superadmin and Admin may approve.
+ */
+export async function approvePurchaseOrder(purchaseOrderId) {
+  const normalizedPurchaseOrderId = prepareDocumentId(
+    purchaseOrderId,
+    "Purchase Order ID",
+  );
+
+  const currentUser = await getCurrentPurchaseOrderApprover();
+
+  const purchaseOrderReference = doc(
+    db,
+    "purchaseOrders",
+    normalizedPurchaseOrderId,
+  );
+
+  let result = null;
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const purchaseOrderSnapshot = await transaction.get(
+        purchaseOrderReference,
+      );
+
+      if (!purchaseOrderSnapshot.exists()) {
+        throw new Error("The selected Purchase Order no longer exists.");
+      }
+
+      const purchaseOrder = purchaseOrderSnapshot.data();
+
+      if (
+        !canTransitionPurchaseOrderStatus(
+          purchaseOrder.status,
+          PURCHASE_ORDER_STATUSES.APPROVED,
+        )
+      ) {
+        throw new Error("Only a Submitted Purchase Order can be approved.");
+      }
+
+      if (
+        purchaseOrder.hasReceivingHistory ||
+        Number(purchaseOrder.totalReceivedQuantity ?? 0) > 0 ||
+        Number(purchaseOrder.goodsReceiptCount ?? 0) > 0
+      ) {
+        throw new Error(
+          "A Purchase Order with receiving history cannot be approved.",
+        );
+      }
+
+      const itemRecords = await readWorkflowItems(
+        transaction,
+        normalizedPurchaseOrderId,
+        purchaseOrder,
+        PURCHASE_ORDER_STATUSES.SUBMITTED,
+      );
+
+      transaction.update(purchaseOrderReference, {
+        status: PURCHASE_ORDER_STATUSES.APPROVED,
+
+        approvedBy: currentUser.userId,
+
+        approvedByName: currentUser.displayName,
+
+        approvedAt: serverTimestamp(),
+
+        revision: Number(purchaseOrder.revision ?? 1) + 1,
+
+        updatedBy: currentUser.userId,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      updateWorkflowItemStatuses(
+        transaction,
+        itemRecords,
+        PURCHASE_ORDER_STATUSES.APPROVED,
+        currentUser,
+      );
+
+      result = {
+        id: normalizedPurchaseOrderId,
+
+        poNumber: purchaseOrder.poNumber,
+
+        status: PURCHASE_ORDER_STATUSES.APPROVED,
+
+        approvedBy: currentUser.userId,
+
+        approvedByName: currentUser.displayName,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    console.error("Unable to approve Purchase Order:", error);
+
+    throw error;
+  }
+}
+
+/**
+ * Cancels a Draft, Submitted, or Approved Purchase
+ * Order when no goods have been received.
+ *
+ * Only Superadmin and Admin may cancel.
+ */
+export async function cancelPurchaseOrder(purchaseOrderId, cancellationReason) {
+  const normalizedPurchaseOrderId = prepareDocumentId(
+    purchaseOrderId,
+    "Purchase Order ID",
+  );
+
+  const preparedCancellationReason =
+    prepareCancellationReason(cancellationReason);
+
+  const currentUser = await getCurrentPurchaseOrderApprover();
+
+  const purchaseOrderReference = doc(
+    db,
+    "purchaseOrders",
+    normalizedPurchaseOrderId,
+  );
+
+  let result = null;
+
+  try {
+    await runTransaction(db, async (transaction) => {
+      const purchaseOrderSnapshot = await transaction.get(
+        purchaseOrderReference,
+      );
+
+      if (!purchaseOrderSnapshot.exists()) {
+        throw new Error("The selected Purchase Order no longer exists.");
+      }
+
+      const purchaseOrder = purchaseOrderSnapshot.data();
+
+      const totalReceivedQuantity = Number(
+        purchaseOrder.totalReceivedQuantity ?? 0,
+      );
+
+      if (
+        !canCancelPurchaseOrder(purchaseOrder.status, totalReceivedQuantity) ||
+        purchaseOrder.hasReceivingHistory ||
+        Number(purchaseOrder.goodsReceiptCount ?? 0) > 0
+      ) {
+        throw new Error(
+          "Only Draft, Submitted, or Approved Purchase Orders without receiving history can be cancelled.",
+        );
+      }
+
+      const currentStatus = purchaseOrder.status;
+
+      const itemRecords = await readWorkflowItems(
+        transaction,
+        normalizedPurchaseOrderId,
+        purchaseOrder,
+        currentStatus,
+      );
+
+      transaction.update(purchaseOrderReference, {
+        status: PURCHASE_ORDER_STATUSES.CANCELLED,
+
+        cancellationReason: preparedCancellationReason,
+
+        cancelledBy: currentUser.userId,
+
+        cancelledByName: currentUser.displayName,
+
+        cancelledAt: serverTimestamp(),
+
+        revision: Number(purchaseOrder.revision ?? 1) + 1,
+
+        updatedBy: currentUser.userId,
+
+        updatedAt: serverTimestamp(),
+      });
+
+      updateWorkflowItemStatuses(
+        transaction,
+        itemRecords,
+        PURCHASE_ORDER_STATUSES.CANCELLED,
+        currentUser,
+      );
+
+      result = {
+        id: normalizedPurchaseOrderId,
+
+        poNumber: purchaseOrder.poNumber,
+
+        previousStatus: currentStatus,
+
+        status: PURCHASE_ORDER_STATUSES.CANCELLED,
+
+        cancellationReason: preparedCancellationReason,
+
+        cancelledBy: currentUser.userId,
+
+        cancelledByName: currentUser.displayName,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    console.error("Unable to cancel Purchase Order:", error);
 
     throw error;
   }
