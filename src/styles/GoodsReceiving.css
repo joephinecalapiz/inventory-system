@@ -530,3 +530,283 @@ textarea:disabled {
     min-width: 0;
   }
 }
+
+.goods-receiving-success-result {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid #86cda0;
+  border-radius: 11px;
+  background: #f5fcf7;
+}
+
+.goods-receiving-success-result-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 15px;
+}
+
+.goods-receiving-success-result-heading h3 {
+  margin: 0;
+  color: #14532d;
+}
+
+.goods-receiving-success-result-heading > span {
+  height: fit-content;
+  padding: 5px 8px;
+  border: 1px solid #86cda0;
+  border-radius: 999px;
+  background: #effaf3;
+  color: #18753a;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.goods-receiving-success-result-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+}
+
+.goods-receiving-success-result-grid div {
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid #c5e4cf;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.goods-receiving-success-result-grid span {
+  display: block;
+  margin-bottom: 5px;
+  color: #667085;
+  font-size: 9px;
+}
+
+.goods-receiving-success-result-grid strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goods-receiving-success-result-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 12px;
+}
+
+.goods-receiving-success-result-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid #4f9f68;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #18753a;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.goods-receiving-confirmation-backdrop {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  overflow-y: auto;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.goods-receiving-confirmation-dialog {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow-y: auto;
+  padding: 20px;
+  border: 1px solid #b9c1cc;
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.goods-receiving-confirmation-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #e1e5ea;
+}
+
+.goods-receiving-confirmation-heading h3 {
+  margin: 0;
+}
+
+.goods-receiving-confirmation-heading > button {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #cbd3dd;
+  border-radius: 7px;
+  background: #ffffff;
+  color: #475467;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.goods-receiving-confirmation-warning {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid #d9bd75;
+  border-radius: 8px;
+  background: #fff9e8;
+}
+
+.goods-receiving-confirmation-warning strong {
+  color: #8a5a00;
+  font-size: 11px;
+}
+
+.goods-receiving-confirmation-warning span {
+  color: #667085;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.goods-receiving-confirmation-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.goods-receiving-confirmation-summary div {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #e1e5ea;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.goods-receiving-confirmation-summary span {
+  display: block;
+  margin-bottom: 4px;
+  color: #667085;
+  font-size: 9px;
+}
+
+.goods-receiving-confirmation-summary strong {
+  display: block;
+  overflow: hidden;
+  color: #172033;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.goods-receiving-confirmation-items {
+  max-height: 260px;
+  margin-top: 14px;
+  overflow: auto;
+  border: 1px solid #dce1e7;
+  border-radius: 8px;
+}
+
+.goods-receiving-confirmation-items table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+}
+
+.goods-receiving-confirmation-items th {
+  padding: 10px;
+  border-bottom: 1px solid #dce1e7;
+  background: #f7f8fa;
+  color: #475467;
+  font-size: 9px;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.goods-receiving-confirmation-items td {
+  padding: 10px;
+  border-bottom: 1px solid #eceff2;
+  color: #344054;
+  font-size: 10px;
+}
+
+.goods-receiving-confirmation-items tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.goods-receiving-confirmation-items td:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.goods-receiving-confirmation-items td:first-child span {
+  color: #667085;
+  font-size: 9px;
+}
+
+.goods-receiving-confirmation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e1e5ea;
+}
+
+.goods-receiving-confirmation-actions button {
+  min-height: 40px;
+  padding: 8px 13px;
+  border-radius: 7px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.goods-receiving-confirmation-cancel {
+  border: 1px solid #b9c1cc;
+  background: #ffffff;
+  color: #475467;
+}
+
+.goods-receiving-confirmation-post {
+  min-width: 175px;
+  border: 1px solid #a56f00;
+  background: #fbbf24;
+  color: #302100;
+}
+
+@media (max-width: 760px) {
+  .goods-receiving-success-result-grid,
+  .goods-receiving-confirmation-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .goods-receiving-success-result-heading,
+  .goods-receiving-confirmation-heading {
+    align-items: flex-start;
+  }
+
+  .goods-receiving-success-result-grid,
+  .goods-receiving-confirmation-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .goods-receiving-success-result-actions,
+  .goods-receiving-confirmation-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .goods-receiving-success-result-actions button,
+  .goods-receiving-confirmation-actions button {
+    width: 100%;
+  }
+}

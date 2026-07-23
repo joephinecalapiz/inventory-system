@@ -10,6 +10,7 @@ import AccountStatus from "./pages/AccountStatus";
 import AddProduct from "./pages/AddProduct";
 import Categories from "./pages/Categories";
 import Dashboard from "./pages/Dashboard";
+import GoodsReceiving from "./pages/GoodsReceiving";
 import Inventory from "./pages/Inventory";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import StockIn from "./pages/StockIn";
@@ -261,6 +262,23 @@ function App() {
               ]}
             >
               <PurchaseOrders currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/goods-receiving"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <GoodsReceiving currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

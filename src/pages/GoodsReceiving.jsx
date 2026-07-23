@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import "../styles/GoodsReceiving.css";
 
@@ -24,6 +24,7 @@ import {
 
 import {
   getReceivablePurchaseOrderDetails,
+  postGoodsReceipt,
   subscribeToReceivablePurchaseOrders,
 } from "../services/goodsReceivingService";
 
@@ -117,6 +118,14 @@ function GoodsReceiving({ currentUserRole }) {
     text: "",
   });
 
+  const feedbackRef = useRef(null);
+
+  const [isPosting, setIsPosting] = useState(false);
+
+  const [isConfirmationOpen, setIsConfirmationOpen] = useState(false);
+
+  const [postedReceipt, setPostedReceipt] = useState(null);
+
   useEffect(() => {
     const unsubscribe = subscribeToReceivablePurchaseOrders(
       (receivablePurchaseOrders) => {
@@ -140,6 +149,20 @@ function GoodsReceiving({ currentUserRole }) {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!isConfirmationOpen) {
+      return undefined;
+    }
+
+    const previousOverflow = document.body.style.overflow;
+
+    document.body.style.overflow = "hidden";
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isConfirmationOpen]);
 
   useEffect(() => {
     if (!selectedPurchaseOrder) {
@@ -214,7 +237,19 @@ function GoodsReceiving({ currentUserRole }) {
   }, [calculatedItems]);
 
   const isFormUnavailable =
-    !canPrepareReceipts || !selectedPurchaseOrder || isLoadingDetails;
+    !canPrepareReceipts ||
+    !selectedPurchaseOrder ||
+    isLoadingDetails ||
+    isPosting;
+
+  function scrollToFeedback() {
+    window.requestAnimationFrame(() => {
+      feedbackRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }
 
   function clearMessageError() {
     if (message.type === "error") {
@@ -476,6 +511,8 @@ function GoodsReceiving({ currentUserRole }) {
         text: "Your role has read-only access to Goods Receiving.",
       });
 
+      scrollToFeedback();
+
       return;
     }
 
@@ -488,19 +525,116 @@ function GoodsReceiving({ currentUserRole }) {
         text: validationError,
       });
 
+      scrollToFeedback();
+
       return;
     }
 
     setMessage({
-      type: "success",
+      type: "",
 
-      text: `Receiving entry validated: ${totals.itemCount} item(s), ${totals.totalReceivedQuantity} unit(s), ${formatCurrency(
-        totals.totalValue,
-      )}. No stock was changed yet; final posting is added in Phase 4G.`,
+      text: "",
     });
+
+    setIsConfirmationOpen(true);
+  }
+
+  function handleCloseConfirmation() {
+    if (isPosting) {
+      return;
+    }
+
+    setIsConfirmationOpen(false);
+  }
+
+  async function handleConfirmPost() {
+    if (!canPrepareReceipts) {
+      setIsConfirmationOpen(false);
+
+      setMessage({
+        type: "error",
+
+        text: "Your role is not allowed to post Goods Receipts.",
+      });
+
+      scrollToFeedback();
+
+      return;
+    }
+
+    const validationError = validateForm();
+
+    if (validationError) {
+      setIsConfirmationOpen(false);
+
+      setMessage({
+        type: "error",
+
+        text: validationError,
+      });
+
+      scrollToFeedback();
+
+      return;
+    }
+
+    try {
+      setIsPosting(true);
+
+      setMessage({
+        type: "",
+
+        text: "",
+      });
+
+      const result = await postGoodsReceipt({
+        ...form,
+
+        items: calculatedItems,
+      });
+
+      setPostedReceipt(result);
+
+      setIsConfirmationOpen(false);
+
+      setSelectedPurchaseOrder(null);
+
+      setSelectedPurchaseOrderId("");
+
+      setForm(createEmptyGoodsReceiptForm());
+
+      setMessage({
+        type: "success",
+
+        text: `${result.goodsReceiptNumber} was posted successfully. ${result.totalReceivedQuantity} unit(s) were added to inventory and ${result.poNumber} is now ${
+          PURCHASE_ORDER_STATUS_LABELS[result.purchaseOrderStatus] ||
+          result.purchaseOrderStatus
+        }.`,
+      });
+
+      scrollToFeedback();
+    } catch (error) {
+      console.error("Unable to post Goods Receipt:", error);
+
+      setIsConfirmationOpen(false);
+
+      setMessage({
+        type: "error",
+
+        text: error?.message || "Unable to post the Goods Receipt.",
+      });
+
+      scrollToFeedback();
+    } finally {
+      setIsPosting(false);
+    }
   }
 
   function handleClearSelectedPurchaseOrder() {
+    if (isPosting) {
+      return;
+    }
+
     const hasEnteredData =
       form.referenceNumber ||
       form.remarks ||
@@ -541,8 +675,8 @@ function GoodsReceiving({ currentUserRole }) {
           <h2>Goods Receiving</h2>
 
           <p>
-            Select an approved Purchase Order, prepare delivered quantities, and
-            review the receiving entry before stock posting.
+            Select an approved Purchase Order, review delivered quantities, and
+            post the Goods Receipt to inventory.
           </p>
         </div>
       </header>
@@ -558,22 +692,114 @@ function GoodsReceiving({ currentUserRole }) {
         </div>
       )}
 
-      {message.text && (
-        <div
-          className={`goods-receiving-message goods-receiving-message-${message.type}`}
-          role={message.type === "error" ? "alert" : "status"}
-        >
-          {message.text}
-        </div>
-      )}
+      <div ref={feedbackRef}>
+        {message.text && (
+          <div
+            className={`goods-receiving-message goods-receiving-message-${message.type}`}
+            role={message.type === "error" ? "alert" : "status"}
+          >
+            {message.text}
+          </div>
+        )}
 
-      {loadError && (
-        <div
-          className="goods-receiving-message goods-receiving-message-error"
-          role="alert"
-        >
-          {loadError}
-        </div>
+        {loadError && (
+          <div
+            className="goods-receiving-message goods-receiving-message-error"
+            role="alert"
+          >
+            {loadError}
+          </div>
+        )}
+      </div>
+
+      {postedReceipt && (
+        <section className="goods-receiving-success-result">
+          <div className="goods-receiving-success-result-heading">
+            <div>
+              <p className="section-label">Posting completed</p>
+
+              <h3>Goods Receipt Posted Successfully</h3>
+            </div>
+
+            <span>COMPLETED</span>
+          </div>
+
+          <div className="goods-receiving-success-result-grid">
+            <div>
+              <span>Goods Receipt number</span>
+
+              <strong>{postedReceipt.goodsReceiptNumber}</strong>
+            </div>
+
+            <div>
+              <span>Purchase Order</span>
+
+              <strong>{postedReceipt.poNumber}</strong>
+            </div>
+
+            <div>
+              <span>Supplier</span>
+
+              <strong>{postedReceipt.supplierName}</strong>
+            </div>
+
+            <div>
+              <span>Supplier reference</span>
+
+              <strong>{postedReceipt.referenceNumber}</strong>
+            </div>
+
+            <div>
+              <span>Date received</span>
+
+              <strong>{postedReceipt.dateReceived}</strong>
+            </div>
+
+            <div>
+              <span>Receipt items</span>
+
+              <strong>{postedReceipt.itemCount}</strong>
+            </div>
+
+            <div>
+              <span>Quantity posted</span>
+
+              <strong>{postedReceipt.totalReceivedQuantity}</strong>
+            </div>
+
+            <div>
+              <span>Total value</span>
+
+              <strong>{formatCurrency(postedReceipt.totalValue)}</strong>
+            </div>
+
+            <div>
+              <span>PO status</span>
+
+              <strong>
+                {PURCHASE_ORDER_STATUS_LABELS[
+                  postedReceipt.purchaseOrderStatus
+                ] || postedReceipt.purchaseOrderStatus}
+              </strong>
+            </div>
+          </div>
+
+          <div className="goods-receiving-success-result-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setPostedReceipt(null);
+
+                setMessage({
+                  type: "",
+                  text: "",
+                });
+              }}
+            >
+              Receive Another Purchase Order
+            </button>
+          </div>
+        </section>
       )}
 
       <section className="goods-receiving-summary">
@@ -881,26 +1107,27 @@ function GoodsReceiving({ currentUserRole }) {
                 className="goods-receiving-review-button"
                 disabled={isFormUnavailable || totals.itemCount === 0}
               >
-                Review Receiving Entry
+                Review & Post Goods Receipt
               </button>
 
               <button
                 type="button"
                 className="goods-receiving-clear-button"
                 onClick={handleClearSelectedPurchaseOrder}
-                disabled={isLoadingDetails}
+                disabled={isLoadingDetails || isPosting}
               >
                 Clear Selected PO
               </button>
             </div>
 
             <div className="goods-receiving-phase-notice">
-              <strong>Preparation mode only</strong>
+              <strong>Atomic posting workflow</strong>
 
               <span>
-                This phase validates the receiving form but does not yet create
-                a Goods Receipt or increase product stock. Atomic posting is
-                added in Phase 4G.
+                After confirmation, the transaction will create a permanent
+                Goods Receipt, update the Purchase Order, increase product
+                stock, and create Stock-In movement records. Firestore
+                permissions are finalized in Phase 4G-3.
               </span>
             </div>
           </form>
@@ -1059,6 +1286,159 @@ function GoodsReceiving({ currentUserRole }) {
           </div>
         )}
       </section>
+
+      {isConfirmationOpen && selectedPurchaseOrder && (
+        <div
+          className="goods-receiving-confirmation-backdrop"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              handleCloseConfirmation();
+            }
+          }}
+        >
+          <section
+            className="goods-receiving-confirmation-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="goods-receiving-confirmation-title"
+          >
+            <div className="goods-receiving-confirmation-heading">
+              <div>
+                <p className="section-label">Final confirmation</p>
+
+                <h3 id="goods-receiving-confirmation-title">
+                  Post Goods Receipt?
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                aria-label="Close confirmation"
+                onClick={handleCloseConfirmation}
+                disabled={isPosting}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="goods-receiving-confirmation-warning">
+              <strong>This action changes inventory stock.</strong>
+
+              <span>
+                The Goods Receipt, Purchase Order, product balances, and
+                Stock-In movements will be updated in one transaction.
+              </span>
+            </div>
+
+            <div className="goods-receiving-confirmation-summary">
+              <div>
+                <span>Purchase Order</span>
+
+                <strong>{selectedPurchaseOrder.poNumber}</strong>
+              </div>
+
+              <div>
+                <span>Supplier</span>
+
+                <strong>{selectedPurchaseOrder.supplierName}</strong>
+              </div>
+
+              <div>
+                <span>Supplier reference</span>
+
+                <strong>{form.referenceNumber}</strong>
+              </div>
+
+              <div>
+                <span>Date received</span>
+
+                <strong>{form.dateReceived}</strong>
+              </div>
+
+              <div>
+                <span>Receipt items</span>
+
+                <strong>{totals.itemCount}</strong>
+              </div>
+
+              <div>
+                <span>Total quantity</span>
+
+                <strong>{totals.totalReceivedQuantity}</strong>
+              </div>
+
+              <div>
+                <span>Total value</span>
+
+                <strong>{formatCurrency(totals.totalValue)}</strong>
+              </div>
+            </div>
+
+            <div className="goods-receiving-confirmation-items">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+
+                    <th>Receive Now</th>
+
+                    <th>Unit Cost</th>
+
+                    <th>Line Total</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {calculatedItems
+                    .filter(
+                      (item) =>
+                        item.quantityReceived !== "" &&
+                        Number(item.quantityReceived) > 0,
+                    )
+                    .map((item) => (
+                      <tr key={item.productId}>
+                        <td>
+                          <strong>{item.productName}</strong>
+
+                          <span>{item.productSku}</span>
+                        </td>
+
+                        <td>{item.quantityReceived}</td>
+
+                        <td>{formatCurrency(item.unitCost)}</td>
+
+                        <td>
+                          <strong>{formatCurrency(item.lineTotal)}</strong>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="goods-receiving-confirmation-actions">
+              <button
+                type="button"
+                className="goods-receiving-confirmation-cancel"
+                onClick={handleCloseConfirmation}
+                disabled={isPosting}
+              >
+                Go Back
+              </button>
+
+              <button
+                type="button"
+                className="goods-receiving-confirmation-post"
+                onClick={handleConfirmPost}
+                disabled={isPosting}
+              >
+                {isPosting ? "Posting Goods Receipt..." : "Post Goods Receipt"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

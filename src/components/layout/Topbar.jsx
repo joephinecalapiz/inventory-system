@@ -7,6 +7,7 @@ const PAGE_TITLES = {
   "/stock-in": "Stock In & Receipt History",
   "/suppliers": "Supplier Management",
   "/purchase-orders": "Purchase Orders",
+  "/goods-receiving": "Goods Receiving",
   "/products": "Product Management",
   "/categories": "Category Management",
   "/units": "Units of Measurement",

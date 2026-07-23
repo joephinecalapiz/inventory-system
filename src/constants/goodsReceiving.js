@@ -16,6 +16,13 @@ export const GOODS_RECEIPT_LIMITS = Object.freeze({
 
   MAX_ITEM_COUNT: PURCHASE_ORDER_LIMITS.MAX_ITEM_COUNT,
 
+  /*
+   * One Goods Receipt may post at most 40 product
+   * lines atomically. Larger Purchase Orders can be
+   * received through multiple Goods Receipts.
+   */
+  MAX_POSTING_ITEM_COUNT: 40,
+
   MAX_QUANTITY: PURCHASE_ORDER_LIMITS.MAX_QUANTITY,
 
   MAX_UNIT_COST: PURCHASE_ORDER_LIMITS.MAX_UNIT_COST,

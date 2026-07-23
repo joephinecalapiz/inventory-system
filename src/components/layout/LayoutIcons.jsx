@@ -151,7 +151,6 @@ export function SupplierIcon() {
   );
 }
 
-
 export function PurchaseOrderIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -160,6 +159,19 @@ export function PurchaseOrderIcon() {
       <path d="M9 12h7" />
       <path d="M9 16h7" />
       <path d="M9 8h2" />
+    </svg>
+  );
+}
+
+export function GoodsReceivingIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3 6h11v10H3V6Z" />
+      <path d="M14 9h4l3 3v4h-7V9Z" />
+      <circle cx="7" cy="18" r="2" />
+      <circle cx="18" cy="18" r="2" />
+      <path d="M6 10h5" />
+      <path d="M8.5 7.5v5" />
     </svg>
   );
 }

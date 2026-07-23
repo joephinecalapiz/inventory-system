@@ -7,13 +7,14 @@ import { logoutAdmin } from "../../services/authService";
 import {
   AddProductIcon,
   CashierIcon,
-  CloseIcon,
   CategoryIcon,
+  CloseIcon,
   DashboardIcon,
+  GoodsReceivingIcon,
+  ProductsIcon,
   InventoryIcon,
   LogoutIcon,
   PurchaseOrderIcon,
-  ProductsIcon,
   ReportsIcon,
   StockInIcon,
   SupplierIcon,
@@ -78,6 +79,17 @@ const NAVIGATION_ITEMS = [
     ],
   },
 
+  {
+    label: "Goods Receiving",
+    path: "/goods-receiving",
+    icon: GoodsReceivingIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
   {
     label: "Product Management",
     path: "/products",
