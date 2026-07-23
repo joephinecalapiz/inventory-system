@@ -482,6 +482,8 @@ function StockIn({ currentUserRole }) {
       });
 
       const result = await createStockInReceipt({
+        operationId: form.operationId,
+
         productId: form.productId,
 
         quantityReceived: form.quantityReceived,

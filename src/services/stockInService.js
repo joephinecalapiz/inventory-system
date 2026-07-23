@@ -20,6 +20,7 @@ import {
   STOCK_MOVEMENT_TYPES,
   calculateStockInTotal,
   isValidStockInDate,
+  isValidStockInOperationId,
   isValidStockInQuantity,
   isValidStockInReason,
   isValidStockInReference,
@@ -131,6 +132,18 @@ function createReceivedDateTimestamp(dateInput) {
   return Timestamp.fromDate(receivedDate);
 }
 
+function prepareOperationId(value) {
+  const operationId = String(value ?? "").trim();
+
+  if (!isValidStockInOperationId(operationId)) {
+    throw new Error(
+      "The Stock-In operation ID is missing or invalid. Refresh the form and try again.",
+    );
+  }
+
+  return operationId;
+}
+
 function prepareProductId(value) {
   const productId = String(value ?? "").trim();
 
@@ -220,6 +233,8 @@ function prepareRemarks(value) {
 }
 
 function prepareStockInData(stockInData) {
+  const operationId = prepareOperationId(stockInData?.operationId);
+
   const productId = prepareProductId(stockInData?.productId);
 
   const quantityReceived = prepareQuantity(stockInData?.quantityReceived);
@@ -255,6 +270,7 @@ function prepareStockInData(stockInData) {
   }
 
   return {
+    operationId,
     productId,
     quantityReceived,
     unitCost,
@@ -279,12 +295,65 @@ export async function createStockInReceipt(stockInData) {
 
   const productReference = doc(db, "products", preparedData.productId);
 
-  const movementReference = doc(collection(db, "stockMovements"));
+  const movementReference = doc(db, "stockMovements", preparedData.operationId);
+
+  const operationReference = doc(
+    db,
+    "stockInOperations",
+    preparedData.operationId,
+  );
 
   let receiptResult = null;
 
   try {
     await runTransaction(db, async (transaction) => {
+      const operationSnapshot = await transaction.get(operationReference);
+
+      if (operationSnapshot.exists()) {
+        const existingOperation = operationSnapshot.data();
+
+        const sameRequest =
+          existingOperation.createdBy === currentUser.userId &&
+          existingOperation.productId === preparedData.productId &&
+          existingOperation.quantityReceived ===
+            preparedData.quantityReceived &&
+          existingOperation.unitCost === preparedData.unitCost &&
+          existingOperation.source === preparedData.source &&
+          existingOperation.referenceNumber === preparedData.referenceNumber &&
+          existingOperation.dateReceivedKey ===
+            preparedData.dateReceivedInput &&
+          existingOperation.reason === preparedData.reason &&
+          existingOperation.remarks === preparedData.remarks;
+
+        if (!sameRequest) {
+          throw new Error(
+            "This Stock-In operation ID is already linked to another receipt.",
+          );
+        }
+
+        receiptResult = {
+          operationId: existingOperation.operationId,
+          movementId: existingOperation.movementId,
+          productId: existingOperation.productId,
+          productName: existingOperation.productName,
+          productSku: existingOperation.productSku,
+          quantityReceived: existingOperation.quantityReceived,
+          previousQuantity: existingOperation.previousQuantity,
+          newQuantity: existingOperation.newQuantity,
+          unitCost: existingOperation.unitCost,
+          totalCost: existingOperation.totalCost,
+          source: existingOperation.source,
+          referenceNumber: existingOperation.referenceNumber,
+          dateReceived: existingOperation.dateReceivedKey,
+          reason: existingOperation.reason,
+          receivedBy: existingOperation.receivedBy,
+          receivedByName: existingOperation.receivedByName,
+          idempotentReplay: true,
+        };
+
+        return;
+      }
+
       /*
        * Always read the latest product balance
        * inside the transaction.
@@ -346,6 +415,10 @@ export async function createStockInReceipt(stockInData) {
       }
 
       const movementData = {
+        movementId: movementReference.id,
+
+        operationId: preparedData.operationId,
+
         movementType: STOCK_MOVEMENT_TYPES.IN,
 
         reason: preparedData.reason,
@@ -442,6 +515,18 @@ export async function createStockInReceipt(stockInData) {
 
         stockMovementCount: nextMovementCount,
 
+        lastStockMovementId: movementReference.id,
+
+        lastStockMovementType: STOCK_MOVEMENT_TYPES.IN,
+
+        lastStockMovementReason: preparedData.reason,
+
+        lastStockMovementQuantity: preparedData.quantityReceived,
+
+        lastStockMovementUnitCost: preparedData.unitCost,
+
+        lastStockMovementAt: serverTimestamp(),
+
         updatedBy: currentUser.userId,
 
         updatedAt: serverTimestamp(),
@@ -460,7 +545,53 @@ export async function createStockInReceipt(stockInData) {
 
       transaction.set(movementReference, movementData);
 
+      transaction.set(operationReference, {
+        operationId: preparedData.operationId,
+
+        status: "COMPLETED",
+
+        movementId: movementReference.id,
+
+        productId: preparedData.productId,
+
+        productName,
+
+        productSku,
+
+        quantityReceived: preparedData.quantityReceived,
+
+        previousQuantity,
+
+        newQuantity,
+
+        unitCost: preparedData.unitCost,
+
+        totalCost: preparedData.totalCost,
+
+        source: preparedData.source,
+
+        referenceNumber: preparedData.referenceNumber,
+
+        dateReceived: preparedData.dateReceived,
+
+        dateReceivedKey: preparedData.dateReceivedInput,
+
+        reason: preparedData.reason,
+
+        remarks: preparedData.remarks,
+
+        receivedBy: currentUser.userId,
+
+        receivedByName: currentUser.displayName,
+
+        createdBy: currentUser.userId,
+
+        createdAt: serverTimestamp(),
+      });
+
       receiptResult = {
+        operationId: preparedData.operationId,
+
         movementId: movementReference.id,
 
         productId: preparedData.productId,

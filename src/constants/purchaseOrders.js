@@ -81,6 +81,8 @@ export const PURCHASE_ORDER_LIMITS = Object.freeze({
  */
 export const PURCHASE_ORDER_REQUIRED_FIELDS = Object.freeze([
   "poNumber",
+  "poYear",
+  "poSequence",
 
   "supplierId",
   "supplierCode",
@@ -88,13 +90,17 @@ export const PURCHASE_ORDER_REQUIRED_FIELDS = Object.freeze([
   "supplierAddress",
   "supplierTin",
   "supplierPaymentTerm",
+  "supplierCustomPaymentTerms",
 
   "orderDate",
+  "orderDateKey",
   "expectedDeliveryDate",
+  "expectedDeliveryDateKey",
 
   "status",
 
   "itemCount",
+  "itemProductIds",
   "totalOrderedQuantity",
   "totalReceivedQuantity",
 
@@ -108,11 +114,32 @@ export const PURCHASE_ORDER_REQUIRED_FIELDS = Object.freeze([
   "goodsReceiptCount",
 
   "notes",
+  "revision",
 
   "createdBy",
   "createdAt",
   "updatedBy",
   "updatedAt",
+]);
+
+export const PURCHASE_ORDER_WORKFLOW_OPTIONAL_FIELDS = Object.freeze([
+  "submittedBy",
+  "submittedByName",
+  "submittedAt",
+  "approvedBy",
+  "approvedByName",
+  "approvedAt",
+  "cancellationReason",
+  "cancelledBy",
+  "cancelledByName",
+  "cancelledAt",
+]);
+
+export const PURCHASE_ORDER_RECEIVING_OPTIONAL_FIELDS = Object.freeze([
+  "lastGoodsReceiptId",
+  "lastGoodsReceiptNumber",
+  "lastGoodsReceiptReference",
+  "lastReceivedAt",
 ]);
 
 /**
@@ -128,6 +155,7 @@ export const PURCHASE_ORDER_ITEM_REQUIRED_FIELDS = Object.freeze([
   "productId",
   "productName",
   "productSku",
+  "barcode",
 
   "category",
   "categoryCode",

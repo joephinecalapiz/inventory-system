@@ -17,11 +17,11 @@ export const GOODS_RECEIPT_LIMITS = Object.freeze({
   MAX_ITEM_COUNT: PURCHASE_ORDER_LIMITS.MAX_ITEM_COUNT,
 
   /*
-   * One Goods Receipt may post at most 40 product
+   * One Goods Receipt may post at most 30 product
    * lines atomically. Larger Purchase Orders can be
    * received through multiple Goods Receipts.
    */
-  MAX_POSTING_ITEM_COUNT: 40,
+  MAX_POSTING_ITEM_COUNT: 30,
 
   MAX_QUANTITY: PURCHASE_ORDER_LIMITS.MAX_QUANTITY,
 
@@ -45,6 +45,7 @@ export const GOODS_RECEIPT_LIMITS = Object.freeze({
 export const GOODS_RECEIPT_REQUIRED_FIELDS = Object.freeze([
   "goodsReceiptNumber",
   "goodsReceiptYear",
+  "goodsReceiptSequence",
 
   "purchaseOrderId",
   "poNumber",
@@ -64,6 +65,9 @@ export const GOODS_RECEIPT_REQUIRED_FIELDS = Object.freeze([
   "totalValue",
 
   "remarks",
+
+  "purchaseOrderStatusBefore",
+  "purchaseOrderStatusAfter",
 
   "receivedBy",
   "receivedByName",
@@ -97,6 +101,8 @@ export const GOODS_RECEIPT_ITEM_REQUIRED_FIELDS = Object.freeze([
 
   "unitCost",
   "lineTotal",
+
+  "stockMovementId",
 
   "createdBy",
   "createdAt",

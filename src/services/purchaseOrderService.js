@@ -793,6 +793,8 @@ export async function createPurchaseOrderDraft(purchaseOrderData) {
 
         poYear: orderYear,
 
+        poSequence: nextSequence,
+
         supplierId: preparedData.supplierId,
 
         ...supplierSnapshotData,
@@ -881,6 +883,8 @@ export async function createPurchaseOrderDraft(purchaseOrderData) {
         id: purchaseOrderReference.id,
 
         poNumber,
+
+        poSequence: nextSequence,
 
         status: PURCHASE_ORDER_STATUSES.DRAFT,
 

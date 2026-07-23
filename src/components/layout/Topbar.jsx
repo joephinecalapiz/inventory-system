@@ -8,6 +8,7 @@ const PAGE_TITLES = {
   "/suppliers": "Supplier Management",
   "/purchase-orders": "Purchase Orders",
   "/goods-receiving": "Goods Receiving",
+  "/goods-receipt-history": "Goods Receipt History",
   "/products": "Product Management",
   "/categories": "Category Management",
   "/units": "Units of Measurement",

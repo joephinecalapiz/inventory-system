@@ -217,27 +217,553 @@ function adminCanManageTargetUser() {
      
      
      
-    match /products/{productId} {    
+    /*
+ * PRODUCT MASTER AND STOCK BALANCE HELPERS
+ */
+function canReadProducts() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "CASHIER",
+    "AUDITOR"
+  ]);
+}
 
-      allow read: if hasRole([
-        "SUPERADMIN",
-        "ADMIN",
-        "INVENTORY_STAFF",
-        "CASHIER",
-        "AUDITOR"
-      ]);
+function canManageProducts() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+}
 
-      allow create, update: if hasRole([
-        "SUPERADMIN",
-        "ADMIN",
-        "INVENTORY_STAFF"
-      ]);
+function isValidProductStatusValue(value) {
+  return value in [
+    "ACTIVE",
+    "INACTIVE"
+  ];
+}
 
-      allow delete: if hasRole([
-        "SUPERADMIN",
-        "ADMIN"
-      ]);
-    }
+function isValidProductMoneyValue(value) {
+  return value is number
+    && value >= 0
+    && value <= 999999999;
+}
+
+function isValidOptionalProductCost(value) {
+  return value == null
+    || isValidProductMoneyValue(value);
+}
+
+function isValidProductWholeNumber(value) {
+  return value is int
+    && value >= 0
+    && value <= 999999999;
+}
+
+function isValidOptionalProductSource(data) {
+  return !data.keys().hasAny([
+      "sourceProductId"
+    ])
+    || (
+      data.sourceProductId is string
+      && data.sourceProductId.size() >= 1
+      && data.sourceProductId.size() <= 100
+      && data.sourceProductId.matches(
+        "^[A-Za-z0-9_-]+$"
+      )
+    );
+}
+
+function productCategorySnapshotMatches(data) {
+  let category = get(
+    /databases/$(database)/documents/categories/$(data.categoryCode)
+  ).data;
+
+  return category.status == "ACTIVE"
+    && category.code == data.categoryCode
+    && category.name == data.category
+    && category.name == data.categoryName
+    && category.barcodePrefix == data.barcodePrefix;
+}
+
+function productUnitSnapshotMatches(data) {
+  let unit = get(
+    /databases/$(database)/documents/units/$(data.unitCode)
+  ).data;
+
+  return unit.status == "ACTIVE"
+    && unit.code == data.unitCode
+    && unit.name == data.unitName
+    && unit.abbreviation == data.unitAbbreviation;
+}
+
+function productBarcodeCounterMatchesCreate(data) {
+  let counter = getAfter(
+    /databases/$(database)/documents/barcodeCounters/$(data.barcodePrefix)
+  ).data;
+
+  return counter.categoryCode == data.categoryCode
+    && counter.barcodePrefix == data.barcodePrefix
+    && counter.lastSequence == data.barcodeSequence
+    && counter.updatedBy == request.auth.uid
+    && counter.updatedAt == request.time;
+}
+
+function productSourceReservationMatches(data, productId) {
+  return !data.keys().hasAny([
+      "sourceProductId"
+    ])
+    || (
+      getAfter(
+        /databases/$(database)/documents/productMasterReservations/$(data.sourceProductId)
+      ).data.productId == productId
+      && getAfter(
+        /databases/$(database)/documents/productMasterReservations/$(data.sourceProductId)
+      ).data.sku == data.sku
+      && getAfter(
+        /databases/$(database)/documents/productMasterReservations/$(data.sourceProductId)
+      ).data.createdBy == request.auth.uid
+      && getAfter(
+        /databases/$(database)/documents/productMasterReservations/$(data.sourceProductId)
+      ).data.createdAt == request.time
+    );
+}
+
+function isValidNewProduct(data, productId) {
+  return data.keys().hasOnly([
+      "sourceProductId",
+      "name",
+      "sku",
+      "description",
+      "status",
+      "category",
+      "categoryName",
+      "categoryCode",
+      "categoryId",
+      "barcodePrefix",
+      "unitCode",
+      "unitId",
+      "unitName",
+      "unitAbbreviation",
+      "costPrice",
+      "sellingPrice",
+      "price",
+      "quantity",
+      "reorderLevel",
+      "barcode",
+      "barcodeSequence",
+      "hasStockHistory",
+      "stockMovementCount",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+    && data.keys().hasAll([
+      "name",
+      "sku",
+      "description",
+      "status",
+      "category",
+      "categoryName",
+      "categoryCode",
+      "categoryId",
+      "barcodePrefix",
+      "unitCode",
+      "unitId",
+      "unitName",
+      "unitAbbreviation",
+      "costPrice",
+      "sellingPrice",
+      "price",
+      "quantity",
+      "reorderLevel",
+      "barcode",
+      "barcodeSequence",
+      "hasStockHistory",
+      "stockMovementCount",
+      "createdBy",
+      "createdAt",
+      "updatedBy",
+      "updatedAt"
+    ])
+    && isValidOptionalProductSource(data)
+    && data.name is string
+    && data.name.size() >= 2
+    && data.name.size() <= 150
+    && data.sku is string
+    && data.sku.matches(
+      "^[A-Z0-9][A-Z0-9#&._/ -]{1,49}$"
+    )
+    && data.description is string
+    && data.description.size() <= 500
+    && isValidProductStatusValue(data.status)
+    && data.status == "ACTIVE"
+    && data.category is string
+    && data.category.size() >= 2
+    && data.category.size() <= 150
+    && data.categoryName == data.category
+    && data.categoryCode is string
+    && data.categoryCode.matches(
+      "^[A-Z0-9_]{2,50}$"
+    )
+    && data.categoryId == data.categoryCode
+    && data.barcodePrefix is string
+    && data.barcodePrefix.matches(
+      "^[0-9]{2}$"
+    )
+    && data.unitCode is string
+    && data.unitCode.matches(
+      "^[A-Z0-9_]{1,50}$"
+    )
+    && data.unitId == data.unitCode
+    && data.unitName is string
+    && data.unitName.size() >= 1
+    && data.unitName.size() <= 100
+    && data.unitAbbreviation is string
+    && data.unitAbbreviation.matches(
+      "^[A-Z0-9]{1,10}$"
+    )
+    && isValidOptionalProductCost(data.costPrice)
+    && isValidProductMoneyValue(data.sellingPrice)
+    && data.price == data.sellingPrice
+    && isValidProductWholeNumber(data.quantity)
+    && isValidProductWholeNumber(data.reorderLevel)
+    && data.barcode is string
+    && data.barcode.matches(
+      "^[0-9]{12}$"
+    )
+    && data.barcode[0:2] == data.barcodePrefix
+    && data.barcodeSequence is int
+    && data.barcodeSequence >= 1
+    && data.barcodeSequence <= 999999999
+    && int(data.barcode[2:11]) == data.barcodeSequence
+    && data.hasStockHistory == false
+    && data.stockMovementCount == 0
+    && data.createdBy == request.auth.uid
+    && data.createdAt == request.time
+    && data.updatedBy == request.auth.uid
+    && data.updatedAt == request.time
+    && productCategorySnapshotMatches(data)
+    && productUnitSnapshotMatches(data)
+    && productBarcodeCounterMatchesCreate(data)
+    && productSourceReservationMatches(
+      data,
+      productId
+    );
+}
+
+function isValidProductMasterUpdate() {
+  return request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "name",
+        "description",
+        "costPrice",
+        "sellingPrice",
+        "price",
+        "reorderLevel",
+        "status",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && request.resource.data.name is string
+    && request.resource.data.name.size() >= 2
+    && request.resource.data.name.size() <= 150
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 500
+    && isValidOptionalProductCost(
+      request.resource.data.costPrice
+    )
+    && isValidProductMoneyValue(
+      request.resource.data.sellingPrice
+    )
+    && request.resource.data.price
+      == request.resource.data.sellingPrice
+    && isValidProductWholeNumber(
+      request.resource.data.reorderLevel
+    )
+    && isValidProductStatusValue(
+      request.resource.data.status
+    )
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time;
+}
+
+function isValidProductUnitAssignment() {
+  return request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "unitCode",
+        "unitId",
+        "unitName",
+        "unitAbbreviation",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && (
+      resource.data.get(
+        "unitCode",
+        ""
+      ) == ""
+      || resource.data.get(
+        "unitCode",
+        ""
+      ) == request.resource.data.unitCode
+    )
+    && request.resource.data.unitCode is string
+    && request.resource.data.unitCode.matches(
+      "^[A-Z0-9_]{1,50}$"
+    )
+    && request.resource.data.unitId
+      == request.resource.data.unitCode
+    && request.resource.data.unitName is string
+    && request.resource.data.unitName.size() >= 1
+    && request.resource.data.unitName.size() <= 100
+    && request.resource.data.unitAbbreviation is string
+    && request.resource.data.unitAbbreviation.matches(
+      "^[A-Z0-9]{1,10}$"
+    )
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time
+    && productUnitSnapshotMatches(
+      request.resource.data
+    );
+}
+
+function isValidProductSourceAssignment(productId) {
+  return hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "sourceProductId",
+        "sourceIdentityAssignedBy",
+        "sourceIdentityAssignedAt",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && resource.data.get(
+      "sourceProductId",
+      ""
+    ) == ""
+    && request.resource.data.sourceProductId
+      is string
+    && request.resource.data.sourceProductId.matches(
+      "^[A-Za-z0-9_-]{1,100}$"
+    )
+    && request.resource.data.sourceIdentityAssignedBy
+      == request.auth.uid
+    && request.resource.data.sourceIdentityAssignedAt
+      == request.time
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time
+    && getAfter(
+      /databases/$(database)/documents/productMasterReservations/$(request.resource.data.sourceProductId)
+    ).data.productId == productId
+    && getAfter(
+      /databases/$(database)/documents/productMasterReservations/$(request.resource.data.sourceProductId)
+    ).data.sku == request.resource.data.sku;
+}
+
+function isValidProductMigrationUpdate() {
+  return hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "description",
+        "costPrice",
+        "sellingPrice",
+        "price",
+        "hasStockHistory",
+        "stockMovementCount",
+        "legacyMigrationVersion",
+        "legacyMigratedBy",
+        "legacyMigratedAt",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && isValidProductStatusValue(
+      request.resource.data.status
+    )
+    && request.resource.data.description is string
+    && request.resource.data.description.size() <= 500
+    && isValidOptionalProductCost(
+      request.resource.data.costPrice
+    )
+    && isValidProductMoneyValue(
+      request.resource.data.sellingPrice
+    )
+    && request.resource.data.price
+      == request.resource.data.sellingPrice
+    && request.resource.data.hasStockHistory is bool
+    && request.resource.data.stockMovementCount is int
+    && request.resource.data.stockMovementCount >= 0
+    && request.resource.data.legacyMigrationVersion == 1
+    && request.resource.data.legacyMigratedBy
+      == request.auth.uid
+    && request.resource.data.legacyMigratedAt
+      == request.time
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time;
+}
+
+function isValidProductStockUpdate() {
+  return request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "quantity",
+        "costPrice",
+        "hasStockHistory",
+        "stockMovementCount",
+        "lastStockMovementId",
+        "lastStockMovementType",
+        "lastStockMovementReason",
+        "lastStockMovementQuantity",
+        "lastStockMovementUnitCost",
+        "lastStockMovementAt",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && isValidProductWholeNumber(
+      resource.data.quantity
+    )
+    && isValidProductWholeNumber(
+      request.resource.data.quantity
+    )
+    && request.resource.data.hasStockHistory == true
+    && request.resource.data.stockMovementCount is int
+    && request.resource.data.stockMovementCount
+      == resource.data.get(
+        "stockMovementCount",
+        0
+      ) + 1
+    && request.resource.data.lastStockMovementId
+      is string
+    && request.resource.data.lastStockMovementId.matches(
+      "^[A-Za-z0-9_-]{1,128}$"
+    )
+    && request.resource.data.lastStockMovementType in [
+      "IN",
+      "OUT"
+    ]
+    && request.resource.data.lastStockMovementReason
+      is string
+    && request.resource.data.lastStockMovementQuantity
+      is int
+    && request.resource.data.lastStockMovementQuantity >= 1
+    && request.resource.data.lastStockMovementQuantity <= 999999999
+    && request.resource.data.lastStockMovementUnitCost
+      is number
+    && request.resource.data.lastStockMovementUnitCost >= 0
+    && request.resource.data.lastStockMovementUnitCost <= 999999999
+    && request.resource.data.lastStockMovementAt
+      == request.time
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time
+    && (
+      (
+        request.resource.data.lastStockMovementType == "IN"
+        && request.resource.data.lastStockMovementReason in [
+          "MANUAL_STOCK_IN",
+          "PURCHASE_RECEIPT",
+          "RETURNED_STOCK",
+          "OPENING_BALANCE",
+          "OTHER"
+        ]
+        && request.resource.data.quantity
+          == resource.data.quantity
+            + request.resource.data.lastStockMovementQuantity
+      )
+      ||
+      (
+        request.resource.data.lastStockMovementType == "OUT"
+        && request.resource.data.lastStockMovementReason
+          == "MANUAL_STOCK_OUT"
+        && request.resource.data.quantity
+          == resource.data.quantity
+            - request.resource.data.lastStockMovementQuantity
+        && request.resource.data.quantity >= 0
+        && request.resource.data.lastStockMovementUnitCost == 0
+      )
+    )
+    && (
+      !request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasAny([
+          "costPrice"
+        ])
+      || (
+        request.resource.data.lastStockMovementType == "IN"
+        && request.resource.data.lastStockMovementUnitCost > 0
+        && request.resource.data.costPrice
+          == request.resource.data.lastStockMovementUnitCost
+      )
+    );
+}
+
+match /products/{productId} {
+  allow get, list: if canReadProducts();
+
+  allow create: if canManageProducts()
+    && isValidNewProduct(
+      request.resource.data,
+      productId
+    );
+
+  allow update: if canManageProducts()
+    && (
+      isValidProductMasterUpdate()
+      || isValidProductUnitAssignment()
+      || isValidProductSourceAssignment(
+        productId
+      )
+      || isValidProductMigrationUpdate()
+      || isValidProductStockUpdate()
+    );
+
+  allow delete: if hasRole([
+      "SUPERADMIN",
+      "ADMIN"
+    ])
+    && resource.data.quantity == 0
+    && resource.data.get(
+      "hasStockHistory",
+      false
+    ) == false
+    && resource.data.get(
+      "stockMovementCount",
+      0
+    ) == 0
+    && resource.data.get(
+      "sourceProductId",
+      ""
+    ) == "";
+}
 
 /*
  * PRODUCT MASTER SOURCE RESERVATIONS
@@ -320,7 +846,15 @@ match /productMasterReservations/{sourceProductId} {
       == request.auth.uid
 
     && request.resource.data.createdAt
-      == request.time;
+      == request.time
+
+    && getAfter(
+      /databases/$(database)/documents/products/$(request.resource.data.productId)
+    ).data.sourceProductId == sourceProductId
+
+    && getAfter(
+      /databases/$(database)/documents/products/$(request.resource.data.productId)
+    ).data.sku == request.resource.data.sku;
 
   /*
    * Reservations are permanent.
@@ -335,40 +869,597 @@ match /productMasterReservations/{sourceProductId} {
     /*
      * BARCODE COUNTERS
      */
-    match /barcodeCounters/{categoryCode} {
+    match /barcodeCounters/{barcodePrefix} {
+  allow get: if canManageProducts();
+  allow list: if false;
 
-      allow read, create, update: if hasRole([
-        "SUPERADMIN",
-        "ADMIN",
-        "INVENTORY_STAFF"
-      ]);
+  allow create: if canManageProducts()
+    && request.resource.data.keys().hasOnly([
+      "category",
+      "categoryCode",
+      "barcodePrefix",
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+    && request.resource.data.keys().hasAll([
+      "category",
+      "categoryCode",
+      "barcodePrefix",
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+    && request.resource.data.barcodePrefix
+      == barcodePrefix
+    && request.resource.data.categoryCode.matches(
+      "^[A-Z0-9_]{2,50}$"
+    )
+    && request.resource.data.category is string
+    && request.resource.data.category.size() >= 2
+    && request.resource.data.category.size() <= 150
+    && request.resource.data.barcodePrefix.matches(
+      "^[0-9]{2}$"
+    )
+    && request.resource.data.lastSequence == 1
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time
+    && get(
+      /databases/$(database)/documents/categories/$(request.resource.data.categoryCode)
+    ).data.status == "ACTIVE"
+    && get(
+      /databases/$(database)/documents/categories/$(request.resource.data.categoryCode)
+    ).data.name == request.resource.data.category
+    && get(
+      /databases/$(database)/documents/categories/$(request.resource.data.categoryCode)
+    ).data.barcodePrefix
+      == request.resource.data.barcodePrefix;
 
-      allow delete: if false;
-    }
+  allow update: if canManageProducts()
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "lastSequence",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && request.resource.data.category
+      == resource.data.category
+    && request.resource.data.categoryCode
+      == resource.data.categoryCode
+    && request.resource.data.barcodePrefix
+      == resource.data.barcodePrefix
+    && request.resource.data.lastSequence is int
+    && request.resource.data.lastSequence
+      == resource.data.lastSequence + 1
+    && request.resource.data.lastSequence
+      <= 999999999
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time;
+
+  allow delete: if false;
+}
 
     /*
      * STOCK MOVEMENT HISTORY
      */
-    match /stockMovements/{movementId} {
+    /*
+ * STOCK MOVEMENT VALIDATION
+ */
+function hasValidStockMovementSnapshots(data) {
+  return (
+      !data.keys().hasAny([
+        "barcode"
+      ])
+      || (
+        data.barcode is string
+        && data.barcode.size() <= 100
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "category"
+      ])
+      || (
+        data.category is string
+        && data.category.size() <= 150
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "categoryCode"
+      ])
+      || (
+        data.categoryCode is string
+        && data.categoryCode.size() <= 50
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "unitCode"
+      ])
+      || (
+        data.unitCode is string
+        && data.unitCode.size() <= 50
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "unitName"
+      ])
+      || (
+        data.unitName is string
+        && data.unitName.size() <= 100
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "unitAbbreviation"
+      ])
+      || (
+        data.unitAbbreviation is string
+        && data.unitAbbreviation.size() <= 10
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "remarks"
+      ])
+      || (
+        data.remarks is string
+        && data.remarks.size() <= 500
+      )
+    );
+}
 
-      allow read: if hasRole([
-        "SUPERADMIN",
-        "ADMIN",
-        "INVENTORY_STAFF",
-        "AUDITOR"
-      ]);
+function isValidManualStockInMovement(data, movementId) {
+  return data.keys().hasOnly([
+      "movementId",
+      "operationId",
+      "movementType",
+      "reason",
+      "productId",
+      "productName",
+      "productSku",
+      "quantity",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "source",
+      "referenceNumber",
+      "dateReceived",
+      "receivedBy",
+      "receivedByName",
+      "createdBy",
+      "createdAt",
+      "barcode",
+      "category",
+      "categoryCode",
+      "unitCode",
+      "unitName",
+      "unitAbbreviation",
+      "remarks"
+    ])
+    && data.keys().hasAll([
+      "movementId",
+      "operationId",
+      "movementType",
+      "reason",
+      "productId",
+      "productName",
+      "productSku",
+      "quantity",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "source",
+      "referenceNumber",
+      "dateReceived",
+      "receivedBy",
+      "receivedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.movementId == movementId
+    && data.operationId == movementId
+    && data.operationId.matches(
+      "^[A-Za-z0-9_-]{16,128}$"
+    )
+    && data.movementType == "IN"
+    && data.reason in [
+      "MANUAL_STOCK_IN",
+      "RETURNED_STOCK",
+      "OPENING_BALANCE",
+      "OTHER"
+    ]
+    && data.productId is string
+    && data.productId.size() >= 1
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 150
+    && data.productSku is string
+    && data.productSku.size() >= 2
+    && data.productSku.size() <= 50
+    && data.quantity is int
+    && data.quantity >= 1
+    && data.quantity <= 999999999
+    && data.previousQuantity is int
+    && data.previousQuantity >= 0
+    && data.newQuantity
+      == data.previousQuantity + data.quantity
+    && data.unitCost is number
+    && data.unitCost >= 0
+    && data.unitCost <= 999999999
+    && data.totalCost is number
+    && data.totalCost <= 999999999999.99
+    && data.totalCost >= data.quantity * data.unitCost - 0.01
+    && data.totalCost <= data.quantity * data.unitCost + 0.01
+    && data.source is string
+    && data.source.size() >= 1
+    && data.source.size() <= 150
+    && data.referenceNumber is string
+    && data.referenceNumber.size() <= 100
+    && data.dateReceived is timestamp
+    && data.receivedBy == request.auth.uid
+    && data.receivedByName is string
+    && data.receivedByName.size() >= 1
+    && data.receivedByName.size() <= 150
+    && data.createdBy == request.auth.uid
+    && data.createdAt == request.time
+    && hasValidStockMovementSnapshots(data);
+}
 
-      allow create: if hasRole([
-        "SUPERADMIN",
-        "ADMIN",
-        "INVENTORY_STAFF"
-      ]);
+function isValidPurchaseReceiptMovement(data, movementId) {
+  return data.keys().hasOnly([
+      "movementId",
+      "movementType",
+      "reason",
+      "productId",
+      "productName",
+      "productSku",
+      "quantity",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "source",
+      "referenceNumber",
+      "dateReceived",
+      "receivedBy",
+      "receivedByName",
+      "purchaseOrderId",
+      "poNumber",
+      "goodsReceiptId",
+      "goodsReceiptNumber",
+      "createdBy",
+      "createdAt",
+      "barcode",
+      "category",
+      "categoryCode",
+      "unitCode",
+      "unitName",
+      "unitAbbreviation",
+      "remarks"
+    ])
+    && data.keys().hasAll([
+      "movementId",
+      "movementType",
+      "reason",
+      "productId",
+      "productName",
+      "productSku",
+      "quantity",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "source",
+      "referenceNumber",
+      "dateReceived",
+      "receivedBy",
+      "receivedByName",
+      "purchaseOrderId",
+      "poNumber",
+      "goodsReceiptId",
+      "goodsReceiptNumber",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.movementId == movementId
+    && data.movementId.matches(
+      "^[A-Za-z0-9_-]{1,128}$"
+    )
+    && data.movementType == "IN"
+    && data.reason == "PURCHASE_RECEIPT"
+    && data.productId is string
+    && data.productId.size() >= 1
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 150
+    && data.productSku is string
+    && data.productSku.size() >= 2
+    && data.productSku.size() <= 50
+    && data.quantity is int
+    && data.quantity >= 1
+    && data.quantity <= 999999999
+    && data.previousQuantity is int
+    && data.previousQuantity >= 0
+    && data.newQuantity
+      == data.previousQuantity + data.quantity
+    && data.unitCost is number
+    && data.unitCost >= 0
+    && data.unitCost <= 999999999
+    && data.totalCost is number
+    && data.totalCost <= 999999999999.99
+    && data.totalCost >= data.quantity * data.unitCost - 0.01
+    && data.totalCost <= data.quantity * data.unitCost + 0.01
+    && data.source is string
+    && data.source.size() >= 1
+    && data.source.size() <= 150
+    && data.referenceNumber is string
+    && data.referenceNumber.size() >= 1
+    && data.referenceNumber.size() <= 100
+    && data.dateReceived is timestamp
+    && data.receivedBy == request.auth.uid
+    && data.receivedByName is string
+    && data.receivedByName.size() >= 1
+    && data.receivedByName.size() <= 150
+    && data.purchaseOrderId is string
+    && data.purchaseOrderId.size() >= 1
+    && data.poNumber.matches(
+      "^PO-[0-9]{4}-[0-9]{6}$"
+    )
+    && data.goodsReceiptId is string
+    && data.goodsReceiptId.size() >= 1
+    && data.goodsReceiptNumber.matches(
+      "^GRN-[0-9]{4}-[0-9]{6}$"
+    )
+    && data.createdBy == request.auth.uid
+    && data.createdAt == request.time
+    && hasValidStockMovementSnapshots(data);
+}
 
-      /*
-       * Stock history should remain permanent.
-       */
-      allow update, delete: if false;
-    }
+function isValidManualStockOutMovement(data, movementId) {
+  return data.keys().hasOnly([
+      "movementId",
+      "productId",
+      "productName",
+      "productSku",
+      "movementType",
+      "reason",
+      "quantity",
+      "previousQuantity",
+      "newQuantity",
+      "categoryCode",
+      "unitCode",
+      "unitAbbreviation",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.keys().hasAll([
+      "movementId",
+      "productId",
+      "productName",
+      "productSku",
+      "movementType",
+      "reason",
+      "quantity",
+      "previousQuantity",
+      "newQuantity",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.movementId == movementId
+    && data.movementId.matches(
+      "^[A-Za-z0-9_-]{1,128}$"
+    )
+    && data.movementType == "OUT"
+    && data.reason == "MANUAL_STOCK_OUT"
+    && data.productId is string
+    && data.productId.size() >= 1
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 150
+    && data.productSku is string
+    && data.productSku.size() >= 2
+    && data.productSku.size() <= 50
+    && data.quantity is int
+    && data.quantity >= 1
+    && data.quantity <= 999999999
+    && data.previousQuantity is int
+    && data.previousQuantity >= data.quantity
+    && data.newQuantity
+      == data.previousQuantity - data.quantity
+    && data.createdBy == request.auth.uid
+    && data.createdAt == request.time
+    && hasValidStockMovementSnapshots(data);
+}
+
+match /stockMovements/{movementId} {
+  allow get, list: if hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN",
+      "INVENTORY_STAFF"
+    ])
+    && (
+      isValidManualStockInMovement(
+        request.resource.data,
+        movementId
+      )
+      || isValidPurchaseReceiptMovement(
+        request.resource.data,
+        movementId
+      )
+      || isValidManualStockOutMovement(
+        request.resource.data,
+        movementId
+      )
+    );
+
+  allow update, delete: if false;
+}
+
+function stockInMovementMatchesOperation(
+  data,
+  operationId
+) {
+  let movement = getAfter(
+    /databases/$(database)/documents/stockMovements/$(operationId)
+  ).data;
+
+  return movement.operationId == operationId
+    && movement.movementId == operationId
+    && movement.productId == data.productId
+    && movement.productName == data.productName
+    && movement.productSku == data.productSku
+    && movement.quantity == data.quantityReceived
+    && movement.previousQuantity == data.previousQuantity
+    && movement.newQuantity == data.newQuantity
+    && movement.unitCost == data.unitCost
+    && movement.totalCost == data.totalCost
+    && movement.source == data.source
+    && movement.referenceNumber == data.referenceNumber
+    && movement.dateReceived == data.dateReceived
+    && movement.reason == data.reason
+    && movement.get(
+      "remarks",
+      ""
+    ) == data.remarks
+    && movement.receivedBy == request.auth.uid
+    && movement.receivedByName == data.receivedByName
+    && movement.createdBy == request.auth.uid
+    && movement.createdAt == request.time;
+}
+
+match /stockInOperations/{operationId} {
+  allow get: if hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+  allow list: if false;
+
+  allow create: if hasRole([
+      "SUPERADMIN",
+      "ADMIN",
+      "INVENTORY_STAFF"
+    ])
+    && operationId.matches(
+      "^[A-Za-z0-9_-]{16,128}$"
+    )
+    && request.resource.data.keys().hasOnly([
+      "operationId",
+      "status",
+      "movementId",
+      "productId",
+      "productName",
+      "productSku",
+      "quantityReceived",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "source",
+      "referenceNumber",
+      "dateReceived",
+      "dateReceivedKey",
+      "reason",
+      "remarks",
+      "receivedBy",
+      "receivedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && request.resource.data.keys().hasAll([
+      "operationId",
+      "status",
+      "movementId",
+      "productId",
+      "productName",
+      "productSku",
+      "quantityReceived",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "source",
+      "referenceNumber",
+      "dateReceived",
+      "dateReceivedKey",
+      "reason",
+      "remarks",
+      "receivedBy",
+      "receivedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && request.resource.data.operationId == operationId
+    && request.resource.data.status == "COMPLETED"
+    && request.resource.data.movementId == operationId
+    && request.resource.data.quantityReceived is int
+    && request.resource.data.quantityReceived >= 1
+    && request.resource.data.previousQuantity is int
+    && request.resource.data.previousQuantity >= 0
+    && request.resource.data.newQuantity
+      == request.resource.data.previousQuantity
+        + request.resource.data.quantityReceived
+    && request.resource.data.unitCost is number
+    && request.resource.data.unitCost >= 0
+    && request.resource.data.totalCost is number
+    && request.resource.data.totalCost <= 999999999999.99
+    && request.resource.data.totalCost
+      >= request.resource.data.quantityReceived
+        * request.resource.data.unitCost - 0.01
+    && request.resource.data.totalCost
+      <= request.resource.data.quantityReceived
+        * request.resource.data.unitCost + 0.01
+    && request.resource.data.source is string
+    && request.resource.data.source.size() >= 1
+    && request.resource.data.source.size() <= 150
+    && request.resource.data.referenceNumber is string
+    && request.resource.data.referenceNumber.size() <= 100
+    && request.resource.data.dateReceived is timestamp
+    && request.resource.data.dateReceivedKey.matches(
+      "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    )
+    && request.resource.data.reason in [
+      "MANUAL_STOCK_IN",
+      "RETURNED_STOCK",
+      "OPENING_BALANCE",
+      "OTHER"
+    ]
+    && request.resource.data.remarks is string
+    && request.resource.data.remarks.size() <= 500
+    && request.resource.data.receivedBy
+      == request.auth.uid
+    && request.resource.data.receivedByName is string
+    && request.resource.data.receivedByName.size() >= 1
+    && request.resource.data.receivedByName.size() <= 150
+    && request.resource.data.createdBy
+      == request.auth.uid
+    && request.resource.data.createdAt
+      == request.time
+    && stockInMovementMatchesOperation(
+      request.resource.data,
+      operationId
+    );
+
+  allow update, delete: if false;
+}
 
     /*
  * CATEGORY MASTER DATA
@@ -1361,6 +2452,150 @@ function supplierHistoryUpdatedForSubmission(
       == request.time;
 }
 
+
+/*
+ * GOODS RECEIVING ACCESS
+ */
+function canReadGoodsReceipts() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+}
+
+function canPostGoodsReceipts() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+}
+
+function isValidGoodsReceiptDateKey(value) {
+  return value is string
+    && value.matches(
+      "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    );
+}
+
+function isValidGoodsReceiptMoney(value) {
+  return value is number
+    && value >= 0
+    && value <= 999999999999.99;
+}
+
+/*
+ * Confirms that a receiving PO update points to
+ * the Goods Receipt created in the same atomic
+ * transaction.
+ *
+ * This performs one shared getAfter() call for the
+ * PO header operation. Item rules intentionally use
+ * local validation so large receipts do not exceed
+ * Firestore rule document-access limits.
+ */
+function goodsReceiptMatchesPurchaseOrderUpdate(
+  purchaseOrderId
+) {
+  let receiptAfter = getAfter(
+    /databases/$(database)/documents/goodsReceipts/$(request.resource.data.lastGoodsReceiptId)
+  ).data;
+
+  return receiptAfter.purchaseOrderId
+      == purchaseOrderId
+    && receiptAfter.poNumber
+      == resource.data.poNumber
+    && receiptAfter.supplierId
+      == resource.data.supplierId
+    && receiptAfter.goodsReceiptNumber
+      == request.resource.data.lastGoodsReceiptNumber
+    && receiptAfter.referenceNumber
+      == request.resource.data.lastGoodsReceiptReference
+    && receiptAfter.purchaseOrderStatusBefore
+      == resource.data.status
+    && receiptAfter.purchaseOrderStatusAfter
+      == request.resource.data.status
+    && receiptAfter.totalReceivedQuantity
+      == request.resource.data.totalReceivedQuantity
+        - resource.data.totalReceivedQuantity
+    && receiptAfter.createdBy
+      == request.auth.uid
+    && receiptAfter.createdAt
+      == request.time;
+}
+
+/*
+ * Confirms that the receipt header and its parent PO
+ * move together in the same atomic transaction.
+ */
+function purchaseOrderMatchesGoodsReceiptCreate(
+  data,
+  goodsReceiptId
+) {
+  let purchaseOrderBefore = get(
+    /databases/$(database)/documents/purchaseOrders/$(data.purchaseOrderId)
+  ).data;
+
+  let purchaseOrderAfter = getAfter(
+    /databases/$(database)/documents/purchaseOrders/$(data.purchaseOrderId)
+  ).data;
+
+  return purchaseOrderBefore.poNumber
+      == data.poNumber
+    && purchaseOrderAfter.poNumber
+      == data.poNumber
+    && purchaseOrderBefore.supplierId
+      == data.supplierId
+    && purchaseOrderAfter.supplierId
+      == data.supplierId
+    && purchaseOrderBefore.status
+      == data.purchaseOrderStatusBefore
+    && purchaseOrderAfter.status
+      == data.purchaseOrderStatusAfter
+    && purchaseOrderAfter.totalReceivedQuantity
+      == purchaseOrderBefore.totalReceivedQuantity
+        + data.totalReceivedQuantity
+    && purchaseOrderAfter.goodsReceiptCount
+      == purchaseOrderBefore.goodsReceiptCount + 1
+    && purchaseOrderAfter.hasReceivingHistory
+      == true
+    && purchaseOrderAfter.lastGoodsReceiptId
+      == goodsReceiptId
+    && purchaseOrderAfter.lastGoodsReceiptNumber
+      == data.goodsReceiptNumber
+    && purchaseOrderAfter.lastGoodsReceiptReference
+      == data.referenceNumber
+    && purchaseOrderAfter.lastReceivedAt
+      == request.time
+    && purchaseOrderAfter.updatedBy
+      == request.auth.uid
+    && purchaseOrderAfter.updatedAt
+      == request.time;
+}
+
+function reservationMatchesGoodsReceipt(data) {
+  let receiptAfter = getAfter(
+    /databases/$(database)/documents/goodsReceipts/$(data.goodsReceiptId)
+  ).data;
+
+  return receiptAfter.goodsReceiptNumber
+      == data.goodsReceiptNumber
+    && receiptAfter.purchaseOrderId
+      == data.purchaseOrderId
+    && receiptAfter.poNumber
+      == data.poNumber
+    && receiptAfter.supplierId
+      == data.supplierId
+    && receiptAfter.referenceNumber
+      == data.referenceNumber
+    && receiptAfter.createdBy
+      == request.auth.uid
+    && receiptAfter.createdAt
+      == request.time;
+}
+
 function isValidPurchaseOrderPaymentTerm(paymentTerm) {
   return paymentTerm in [
     "CASH_ON_DELIVERY",
@@ -1397,10 +2632,27 @@ function isValidPurchaseOrderMoney(value) {
     && value <= 999999999999.99;
 }
 
+function purchaseOrderCounterMatchesCreate(data) {
+  let counter = getAfter(
+    /databases/$(database)/documents/purchaseOrderCounters/$(string(data.poYear))
+  ).data;
+
+  return data.poSequence is int
+    && data.poSequence >= 1
+    && data.poSequence <= 999999
+    && int(data.poNumber[3:7]) == data.poYear
+    && int(data.poNumber[8:14]) == data.poSequence
+    && counter.year == data.poYear
+    && counter.lastSequence == data.poSequence
+    && counter.updatedBy == request.auth.uid
+    && counter.updatedAt == request.time;
+}
+
 function isValidPurchaseOrderHeader(data) {
   return data.keys().hasOnly([
       "poNumber",
       "poYear",
+      "poSequence",
 
       "supplierId",
       "supplierCode",
@@ -1505,6 +2757,17 @@ function isValidPurchaseOrderHeader(data) {
     && data.poYear is int
     && data.poYear >= 2000
     && data.poYear <= 9999
+
+    && (
+      !data.keys().hasAny([
+        "poSequence"
+      ])
+      || (
+        data.poSequence is int
+        && data.poSequence >= 1
+        && data.poSequence <= 999999
+      )
+    )
 
     && data.supplierId is string
     && data.supplierId.size() >= 1
@@ -1843,6 +3106,14 @@ match /purchaseOrders/{purchaseOrderId} {
     && request.resource.data.revision
       == 1
 
+    && request.resource.data.keys().hasAll([
+      "poSequence"
+    ])
+
+    && purchaseOrderCounterMatchesCreate(
+      request.resource.data
+    )
+
     && !request.resource.data.keys().hasAny([
       "submittedBy",
       "submittedByName",
@@ -1913,6 +3184,14 @@ match /purchaseOrders/{purchaseOrderId} {
 
     && request.resource.data.poYear
       == resource.data.poYear
+
+    && request.resource.data.get(
+      "poSequence",
+      0
+    ) == resource.data.get(
+      "poSequence",
+      0
+    )
 
     && request.resource.data.createdBy
       == resource.data.createdBy
@@ -2035,6 +3314,111 @@ match /purchaseOrders/{purchaseOrderId} {
 
     && request.resource.data.updatedAt
       == request.time;
+
+  /*
+   * Post a Goods Receipt against an Approved or
+   * Partially Received Purchase Order.
+   */
+  allow update: if canPostGoodsReceipts()
+
+    && resource.data.status in [
+      "APPROVED",
+      "PARTIALLY_RECEIVED"
+    ]
+
+    && request.resource.data.status in [
+      "PARTIALLY_RECEIVED",
+      "RECEIVED"
+    ]
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "totalReceivedQuantity",
+        "hasReceivingHistory",
+        "goodsReceiptCount",
+        "lastGoodsReceiptId",
+        "lastGoodsReceiptNumber",
+        "lastGoodsReceiptReference",
+        "lastReceivedAt",
+        "revision",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.totalReceivedQuantity
+      is int
+
+    && request.resource.data.totalReceivedQuantity
+      > resource.data.totalReceivedQuantity
+
+    && request.resource.data.totalReceivedQuantity
+      <= resource.data.totalOrderedQuantity
+
+    && (
+      (
+        request.resource.data.totalReceivedQuantity
+          == resource.data.totalOrderedQuantity
+        && request.resource.data.status
+          == "RECEIVED"
+      )
+      ||
+      (
+        request.resource.data.totalReceivedQuantity
+          < resource.data.totalOrderedQuantity
+        && request.resource.data.status
+          == "PARTIALLY_RECEIVED"
+      )
+    )
+
+    && request.resource.data.hasReceivingHistory
+      == true
+
+    && request.resource.data.goodsReceiptCount
+      == resource.data.goodsReceiptCount + 1
+
+    && request.resource.data.lastGoodsReceiptId
+      is string
+
+    && request.resource.data.lastGoodsReceiptId.size()
+      >= 1
+
+    && request.resource.data.lastGoodsReceiptId.size()
+      <= 128
+
+    && request.resource.data.lastGoodsReceiptNumber
+      is string
+
+    && request.resource.data.lastGoodsReceiptNumber.matches(
+      "^GRN-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && request.resource.data.lastGoodsReceiptReference
+      is string
+
+    && request.resource.data.lastGoodsReceiptReference.size()
+      >= 1
+
+    && request.resource.data.lastGoodsReceiptReference.size()
+      <= 100
+
+    && request.resource.data.lastReceivedAt
+      == request.time
+
+    && request.resource.data.revision
+      == resource.data.revision + 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time
+
+    && goodsReceiptMatchesPurchaseOrderUpdate(
+      purchaseOrderId
+    );
 
   /*
    * Cancel a Draft, Submitted, or Approved PO
@@ -2293,6 +3677,146 @@ match /purchaseOrders/{purchaseOrderId} {
         == request.time;
 
     /*
+     * Receive quantity against one PO item.
+     */
+    allow update: if canPostGoodsReceipts()
+
+      && resource.data.poStatus in [
+        "APPROVED",
+        "PARTIALLY_RECEIVED"
+      ]
+
+      && request.resource.data.poStatus in [
+        "PARTIALLY_RECEIVED",
+        "RECEIVED"
+      ]
+
+      && request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasOnly([
+          "receivedQuantity",
+          "remainingQuantity",
+          "poStatus",
+          "lastReceivedQuantity",
+          "lastReceivedUnitCost",
+          "lastGoodsReceiptId",
+          "lastGoodsReceiptNumber",
+          "lastReceivedAt",
+          "updatedBy",
+          "updatedAt"
+        ])
+
+      && request.resource.data.receivedQuantity
+        is int
+
+      && request.resource.data.receivedQuantity
+        > resource.data.receivedQuantity
+
+      && request.resource.data.receivedQuantity
+        <= resource.data.orderedQuantity
+
+      && request.resource.data.remainingQuantity
+        is int
+
+      && request.resource.data.remainingQuantity
+        == request.resource.data.orderedQuantity
+          - request.resource.data.receivedQuantity
+
+      && request.resource.data.lastReceivedQuantity
+        is int
+
+      && request.resource.data.lastReceivedQuantity
+        == request.resource.data.receivedQuantity
+          - resource.data.receivedQuantity
+
+      && request.resource.data.lastReceivedQuantity
+        >= 1
+
+      && request.resource.data.lastReceivedQuantity
+        <= resource.data.remainingQuantity
+
+      && request.resource.data.lastReceivedUnitCost
+        is number
+
+      && request.resource.data.lastReceivedUnitCost
+        >= 0
+
+      && request.resource.data.lastReceivedUnitCost
+        <= 999999999
+
+      && request.resource.data.lastGoodsReceiptId
+        is string
+
+      && request.resource.data.lastGoodsReceiptId.size()
+        >= 1
+
+      && request.resource.data.lastGoodsReceiptId.size()
+        <= 128
+
+      && request.resource.data.lastGoodsReceiptNumber
+        is string
+
+      && request.resource.data.lastGoodsReceiptNumber.matches(
+        "^GRN-[0-9]{4}-[0-9]{6}$"
+      )
+
+      && request.resource.data.lastReceivedAt
+        == request.time
+
+      && (
+        request.resource.data.poStatus
+          == "PARTIALLY_RECEIVED"
+        || request.resource.data.remainingQuantity
+          == 0
+      )
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    /*
+     * Synchronize an unselected PO item's status
+     * when the parent PO moves to PARTIALLY_RECEIVED
+     * or RECEIVED.
+     */
+    allow update: if canPostGoodsReceipts()
+
+      && resource.data.poStatus in [
+        "APPROVED",
+        "PARTIALLY_RECEIVED"
+      ]
+
+      && request.resource.data.poStatus in [
+        "PARTIALLY_RECEIVED",
+        "RECEIVED"
+      ]
+
+      && request.resource.data
+        .diff(resource.data)
+        .affectedKeys()
+        .hasOnly([
+          "poStatus",
+          "updatedBy",
+          "updatedAt"
+        ])
+
+      && (
+        request.resource.data.poStatus
+          == "PARTIALLY_RECEIVED"
+        || resource.data.remainingQuantity
+          == 0
+      )
+
+      && request.resource.data.updatedBy
+        == request.auth.uid
+
+      && request.resource.data.updatedAt
+        == request.time;
+
+    /*
      * Items may only be removed while Draft.
      */
     allow delete: if canManagePurchaseOrderDrafts()
@@ -2386,6 +3910,655 @@ match /purchaseOrderCounters/{counterId} {
 
 
 
+
+function goodsReceiptCounterMatchesCreate(data) {
+  let counter = getAfter(
+    /databases/$(database)/documents/goodsReceiptCounters/$(string(data.goodsReceiptYear))
+  ).data;
+
+  return data.goodsReceiptSequence is int
+    && data.goodsReceiptSequence >= 1
+    && data.goodsReceiptSequence <= 999999
+    && int(data.goodsReceiptNumber[4:8])
+      == data.goodsReceiptYear
+    && int(data.goodsReceiptNumber[9:15])
+      == data.goodsReceiptSequence
+    && counter.year == data.goodsReceiptYear
+    && counter.lastSequence
+      == data.goodsReceiptSequence
+    && counter.updatedBy == request.auth.uid
+    && counter.updatedAt == request.time;
+}
+
+/*
+ * GOODS RECEIPT HEADERS
+ */
+match /goodsReceipts/{goodsReceiptId} {
+
+  allow get, list: if canReadGoodsReceipts();
+
+  allow create: if canPostGoodsReceipts()
+
+    && request.resource.data.keys().hasOnly([
+      "goodsReceiptNumber",
+      "goodsReceiptYear",
+      "goodsReceiptSequence",
+      "purchaseOrderId",
+      "poNumber",
+      "supplierId",
+      "supplierCode",
+      "supplierName",
+      "referenceNumber",
+      "dateReceived",
+      "dateReceivedKey",
+      "status",
+      "itemCount",
+      "totalReceivedQuantity",
+      "totalValue",
+      "remarks",
+      "purchaseOrderStatusBefore",
+      "purchaseOrderStatusAfter",
+      "receivedBy",
+      "receivedByName",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "goodsReceiptNumber",
+      "goodsReceiptYear",
+      "goodsReceiptSequence",
+      "purchaseOrderId",
+      "poNumber",
+      "supplierId",
+      "supplierCode",
+      "supplierName",
+      "referenceNumber",
+      "dateReceived",
+      "dateReceivedKey",
+      "status",
+      "itemCount",
+      "totalReceivedQuantity",
+      "totalValue",
+      "remarks",
+      "purchaseOrderStatusBefore",
+      "purchaseOrderStatusAfter",
+      "receivedBy",
+      "receivedByName",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.goodsReceiptNumber
+      is string
+
+    && request.resource.data.goodsReceiptNumber.matches(
+      "^GRN-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && request.resource.data.goodsReceiptYear
+      is int
+
+    && request.resource.data.goodsReceiptYear
+      >= 2000
+
+    && request.resource.data.goodsReceiptYear
+      <= 9999
+
+    && request.resource.data.goodsReceiptSequence
+      is int
+
+    && request.resource.data.goodsReceiptSequence
+      >= 1
+
+    && request.resource.data.goodsReceiptSequence
+      <= 999999
+
+    && request.resource.data.purchaseOrderId
+      is string
+
+    && request.resource.data.purchaseOrderId.size()
+      >= 1
+
+    && request.resource.data.purchaseOrderId.size()
+      <= 128
+
+    && request.resource.data.poNumber
+      is string
+
+    && request.resource.data.poNumber.matches(
+      "^PO-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && request.resource.data.supplierId
+      is string
+
+    && request.resource.data.supplierId.size()
+      >= 1
+
+    && request.resource.data.supplierCode
+      is string
+
+    && request.resource.data.supplierCode.size()
+      >= 1
+
+    && request.resource.data.supplierCode.size()
+      <= 30
+
+    && request.resource.data.supplierName
+      is string
+
+    && request.resource.data.supplierName.size()
+      >= 2
+
+    && request.resource.data.supplierName.size()
+      <= 150
+
+    && request.resource.data.referenceNumber
+      is string
+
+    && request.resource.data.referenceNumber.size()
+      >= 1
+
+    && request.resource.data.referenceNumber.size()
+      <= 100
+
+    && request.resource.data.dateReceived
+      is timestamp
+
+    && isValidGoodsReceiptDateKey(
+      request.resource.data.dateReceivedKey
+    )
+
+    && request.resource.data.status
+      == "COMPLETED"
+
+    && request.resource.data.itemCount
+      is int
+
+    && request.resource.data.itemCount
+      >= 1
+
+    && request.resource.data.itemCount
+      <= 30
+
+    && request.resource.data.totalReceivedQuantity
+      is int
+
+    && request.resource.data.totalReceivedQuantity
+      >= 1
+
+    && request.resource.data.totalReceivedQuantity
+      <= 999999999
+
+    && isValidGoodsReceiptMoney(
+      request.resource.data.totalValue
+    )
+
+    && request.resource.data.remarks
+      is string
+
+    && request.resource.data.remarks.size()
+      <= 500
+
+    && request.resource.data.purchaseOrderStatusBefore in [
+      "APPROVED",
+      "PARTIALLY_RECEIVED"
+    ]
+
+    && request.resource.data.purchaseOrderStatusAfter in [
+      "PARTIALLY_RECEIVED",
+      "RECEIVED"
+    ]
+
+    && request.resource.data.receivedBy
+      == request.auth.uid
+
+    && request.resource.data.receivedByName
+      is string
+
+    && request.resource.data.receivedByName.size()
+      >= 1
+
+    && request.resource.data.receivedByName.size()
+      <= 150
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time
+
+    && goodsReceiptCounterMatchesCreate(
+      request.resource.data
+    )
+
+    && purchaseOrderMatchesGoodsReceiptCreate(
+      request.resource.data,
+      goodsReceiptId
+    );
+
+  allow update, delete: if false;
+
+  /*
+   * GOODS RECEIPT ITEMS
+   */
+  match /items/{itemId} {
+
+    allow get, list: if canReadGoodsReceipts();
+
+    allow create: if canPostGoodsReceipts()
+
+      && request.resource.data.keys().hasOnly([
+        "goodsReceiptId",
+        "goodsReceiptNumber",
+        "purchaseOrderId",
+        "poNumber",
+        "productId",
+        "productName",
+        "productSku",
+        "category",
+        "categoryCode",
+        "unitCode",
+        "unitName",
+        "unitAbbreviation",
+        "orderedQuantity",
+        "previouslyReceivedQuantity",
+        "quantityReceived",
+        "remainingQuantity",
+        "unitCost",
+        "lineTotal",
+        "stockMovementId",
+        "createdBy",
+        "createdAt"
+      ])
+
+      && request.resource.data.keys().hasAll([
+        "goodsReceiptId",
+        "goodsReceiptNumber",
+        "purchaseOrderId",
+        "poNumber",
+        "productId",
+        "productName",
+        "productSku",
+        "category",
+        "categoryCode",
+        "unitCode",
+        "unitName",
+        "unitAbbreviation",
+        "orderedQuantity",
+        "previouslyReceivedQuantity",
+        "quantityReceived",
+        "remainingQuantity",
+        "unitCost",
+        "lineTotal",
+        "stockMovementId",
+        "createdBy",
+        "createdAt"
+      ])
+
+      && request.resource.data.goodsReceiptId
+        == goodsReceiptId
+
+      && request.resource.data.goodsReceiptNumber
+        is string
+
+      && request.resource.data.goodsReceiptNumber.matches(
+        "^GRN-[0-9]{4}-[0-9]{6}$"
+      )
+
+      && request.resource.data.purchaseOrderId
+        is string
+
+      && request.resource.data.purchaseOrderId.size()
+        >= 1
+
+      && request.resource.data.poNumber
+        is string
+
+      && request.resource.data.poNumber.matches(
+        "^PO-[0-9]{4}-[0-9]{6}$"
+      )
+
+      && request.resource.data.productId
+        == itemId
+
+      && request.resource.data.productName
+        is string
+
+      && request.resource.data.productName.size()
+        >= 1
+
+      && request.resource.data.productName.size()
+        <= 150
+
+      && request.resource.data.productSku
+        is string
+
+      && request.resource.data.productSku.size()
+        >= 2
+
+      && request.resource.data.productSku.size()
+        <= 50
+
+      && request.resource.data.category
+        is string
+
+      && request.resource.data.category.size()
+        >= 1
+
+      && request.resource.data.category.size()
+        <= 150
+
+      && request.resource.data.categoryCode
+        is string
+
+      && request.resource.data.categoryCode.size()
+        >= 1
+
+      && request.resource.data.categoryCode.size()
+        <= 50
+
+      && request.resource.data.unitCode
+        is string
+
+      && request.resource.data.unitCode.size()
+        >= 1
+
+      && request.resource.data.unitCode.size()
+        <= 50
+
+      && request.resource.data.unitName
+        is string
+
+      && request.resource.data.unitName.size()
+        >= 1
+
+      && request.resource.data.unitName.size()
+        <= 100
+
+      && request.resource.data.unitAbbreviation
+        is string
+
+      && request.resource.data.unitAbbreviation.size()
+        >= 1
+
+      && request.resource.data.unitAbbreviation.size()
+        <= 10
+
+      && request.resource.data.orderedQuantity
+        is int
+
+      && request.resource.data.orderedQuantity
+        >= 1
+
+      && request.resource.data.previouslyReceivedQuantity
+        is int
+
+      && request.resource.data.previouslyReceivedQuantity
+        >= 0
+
+      && request.resource.data.quantityReceived
+        is int
+
+      && request.resource.data.quantityReceived
+        >= 1
+
+      && request.resource.data.remainingQuantity
+        is int
+
+      && request.resource.data.remainingQuantity
+        >= 0
+
+      && request.resource.data.previouslyReceivedQuantity
+        + request.resource.data.quantityReceived
+        + request.resource.data.remainingQuantity
+        == request.resource.data.orderedQuantity
+
+      && request.resource.data.unitCost
+        is number
+
+      && request.resource.data.unitCost
+        >= 0
+
+      && request.resource.data.unitCost
+        <= 999999999
+
+      && isValidGoodsReceiptMoney(
+        request.resource.data.lineTotal
+      )
+
+      && request.resource.data.lineTotal
+        >= request.resource.data.quantityReceived
+          * request.resource.data.unitCost - 0.01
+
+      && request.resource.data.lineTotal
+        <= request.resource.data.quantityReceived
+          * request.resource.data.unitCost + 0.01
+
+      && request.resource.data.stockMovementId
+        is string
+
+      && request.resource.data.stockMovementId.size()
+        >= 1
+
+      && request.resource.data.stockMovementId.size()
+        <= 128
+
+      && request.resource.data.createdBy
+        == request.auth.uid
+
+      && request.resource.data.createdAt
+        == request.time;
+
+    allow update, delete: if false;
+  }
+}
+
+/*
+ * GOODS RECEIPT NUMBER COUNTERS
+ */
+match /goodsReceiptCounters/{counterId} {
+
+  allow get: if canPostGoodsReceipts();
+
+  allow list: if false;
+
+  allow create: if canPostGoodsReceipts()
+
+    && counterId.matches(
+      "^[0-9]{4}$"
+    )
+
+    && request.resource.data.keys().hasOnly([
+      "year",
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "year",
+      "lastSequence",
+      "updatedBy",
+      "updatedAt"
+    ])
+
+    && request.resource.data.year
+      is int
+
+    && request.resource.data.year
+      >= 2000
+
+    && request.resource.data.year
+      <= 9999
+
+    && request.resource.data.lastSequence
+      == 1
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  allow update: if canPostGoodsReceipts()
+
+    && counterId.matches(
+      "^[0-9]{4}$"
+    )
+
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "year",
+        "lastSequence",
+        "updatedBy",
+        "updatedAt"
+      ])
+
+    && request.resource.data.year
+      == resource.data.year
+
+    && request.resource.data.lastSequence
+      is int
+
+    && request.resource.data.lastSequence
+      == resource.data.lastSequence + 1
+
+    && request.resource.data.lastSequence
+      <= 999999
+
+    && request.resource.data.updatedBy
+      == request.auth.uid
+
+    && request.resource.data.updatedAt
+      == request.time;
+
+  allow delete: if false;
+}
+
+/*
+ * SUPPLIER REFERENCE RESERVATIONS
+ */
+match /goodsReceiptReferenceReservations/{reservationId} {
+
+  allow get: if canPostGoodsReceipts();
+
+  allow list: if false;
+
+  allow create: if canPostGoodsReceipts()
+
+    && request.resource.data.keys().hasOnly([
+      "supplierId",
+      "supplierCode",
+      "supplierName",
+      "referenceNumber",
+      "purchaseOrderId",
+      "poNumber",
+      "goodsReceiptId",
+      "goodsReceiptNumber",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.keys().hasAll([
+      "supplierId",
+      "supplierCode",
+      "supplierName",
+      "referenceNumber",
+      "purchaseOrderId",
+      "poNumber",
+      "goodsReceiptId",
+      "goodsReceiptNumber",
+      "createdBy",
+      "createdAt"
+    ])
+
+    && request.resource.data.supplierId
+      is string
+
+    && request.resource.data.supplierId.size()
+      >= 1
+
+    && request.resource.data.supplierCode
+      is string
+
+    && request.resource.data.supplierCode.size()
+      >= 1
+
+    && request.resource.data.supplierCode.size()
+      <= 30
+
+    && request.resource.data.supplierName
+      is string
+
+    && request.resource.data.supplierName.size()
+      >= 2
+
+    && request.resource.data.supplierName.size()
+      <= 150
+
+    && request.resource.data.referenceNumber
+      is string
+
+    && request.resource.data.referenceNumber.size()
+      >= 1
+
+    && request.resource.data.referenceNumber.size()
+      <= 100
+
+    && request.resource.data.purchaseOrderId
+      is string
+
+    && request.resource.data.purchaseOrderId.size()
+      >= 1
+
+    && request.resource.data.poNumber
+      is string
+
+    && request.resource.data.poNumber.matches(
+      "^PO-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && request.resource.data.goodsReceiptId
+      is string
+
+    && request.resource.data.goodsReceiptId.size()
+      >= 1
+
+    && request.resource.data.goodsReceiptId.size()
+      <= 128
+
+    && request.resource.data.goodsReceiptNumber
+      is string
+
+    && request.resource.data.goodsReceiptNumber.matches(
+      "^GRN-[0-9]{4}-[0-9]{6}$"
+    )
+
+    && request.resource.data.createdBy
+      == request.auth.uid
+
+    && request.resource.data.createdAt
+      == request.time
+
+    && reservationId
+      == hashing.sha256(
+        (
+          request.resource.data.supplierId
+          + "__"
+          + request.resource.data.referenceNumber
+        ).toUtf8()
+      ).toHexString()
+
+    && reservationMatchesGoodsReceipt(
+      request.resource.data
+    );
+
+  allow update, delete: if false;
+}
 
     /*
      * DENY EVERY COLLECTION NOT EXPLICITLY LISTED ABOVE.

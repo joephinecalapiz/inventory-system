@@ -175,3 +175,18 @@ export function GoodsReceivingIcon() {
     </svg>
   );
 }
+
+export function GoodsReceiptHistoryIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M6 3h12v18H6V3Z" />
+      <path d="M9 8h6" />
+      <path d="M9 12h6" />
+      <path d="M9 16h4" />
+      <path d="M4 6h2" />
+      <path d="M4 10h2" />
+      <path d="M4 14h2" />
+      <path d="M4 18h2" />
+    </svg>
+  );
+}

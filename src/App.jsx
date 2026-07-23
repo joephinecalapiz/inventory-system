@@ -11,6 +11,7 @@ import AddProduct from "./pages/AddProduct";
 import Categories from "./pages/Categories";
 import Dashboard from "./pages/Dashboard";
 import GoodsReceiving from "./pages/GoodsReceiving";
+import GoodsReceiptHistory from "./pages/GoodsReceiptHistory";
 import Inventory from "./pages/Inventory";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import StockIn from "./pages/StockIn";
@@ -283,6 +284,22 @@ function App() {
           }
         />
 
+        <Route
+          path="/goods-receipt-history"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <GoodsReceiptHistory />
+            </RequireRole>
+          }
+        />
         <Route
           path="/products"
           element={

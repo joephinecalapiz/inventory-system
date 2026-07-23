@@ -236,8 +236,10 @@ function prepareWholeNumber(value, fieldLabel) {
 
   const amount = Number(value);
 
-  if (!isValidWholeNumber(amount)) {
-    throw new Error(`${fieldLabel} must be a non-negative whole number.`);
+  if (!isValidWholeNumber(amount) || amount > 999999999) {
+    throw new Error(
+      `${fieldLabel} must be a non-negative whole number not greater than 999999999.`,
+    );
   }
 
   return amount;
@@ -703,6 +705,8 @@ export async function createProduct(productData) {
 
             lastSequence: nextSequence,
 
+            updatedBy: currentUserId,
+
             updatedAt: serverTimestamp(),
           },
 
@@ -766,6 +770,8 @@ export async function createProduct(productData) {
 
             barcode: generatedBarcode,
 
+            barcodeSequence: nextSequence,
+
             hasStockHistory: false,
 
             stockMovementCount: 0,
@@ -809,6 +815,8 @@ export async function createProduct(productData) {
       sourceProductId: sourceProductId || null,
 
       barcode: generatedBarcode,
+
+      barcodeSequence: Number(generatedBarcode.slice(2, 11)),
 
       category: resolvedCategoryName,
 
@@ -1286,6 +1294,12 @@ export async function deleteProduct(productId) {
           );
         }
 
+        if (String(product.sourceProductId ?? "").trim()) {
+          throw new Error(
+            "A product linked to the Product Master cannot be deleted. Deactivate it instead.",
+          );
+        }
+
         if (product.hasStockHistory || product.stockMovementCount > 0) {
           throw new Error(
             "This product cannot be deleted because it already has stock history. Deactivate it instead.",
@@ -1373,15 +1387,29 @@ export async function adjustProductStock(productId, movementType, amount) {
             ? storedMovementCount
             : 0;
 
+        const productName = normalizeProductName(product.name);
+
+        const productSku = normalizeProductSku(product.sku);
+
+        if (!productName) {
+          throw new Error("The selected product does not have a valid name.");
+        }
+
+        if (!isValidProductSku(productSku)) {
+          throw new Error("The selected product does not have a valid SKU.");
+        }
+
         const movementData = {
+          movementId: movementReference.id,
+
           productId,
 
-          productName: product.name,
+          productName,
 
-          productSku: product.sku,
+          productSku,
 
           movementType,
-          
+
           reason: "MANUAL_STOCK_OUT",
 
           quantity: adjustmentAmount,
@@ -1416,6 +1444,18 @@ export async function adjustProductStock(productId, movementType, amount) {
             hasStockHistory: true,
 
             stockMovementCount: previousMovementCount + 1,
+
+            lastStockMovementId: movementReference.id,
+
+            lastStockMovementType: "OUT",
+
+            lastStockMovementReason: "MANUAL_STOCK_OUT",
+
+            lastStockMovementQuantity: adjustmentAmount,
+
+            lastStockMovementUnitCost: 0,
+
+            lastStockMovementAt: serverTimestamp(),
 
             updatedBy: currentUserId,
 

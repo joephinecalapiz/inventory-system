@@ -10,6 +10,8 @@ import {
 
 import { auth, db } from "../firebase/firebase";
 
+import { sha256Hex } from "../utils/sha256";
+
 import { USER_ROLES } from "../constants/roles";
 
 import { PRODUCT_STATUSES } from "../constants/products";
@@ -280,6 +282,10 @@ function prepareGoodsReceiptData(goodsReceiptData) {
 }
 
 function createReferenceReservationId(supplierId, referenceNumber) {
+  return sha256Hex(`${supplierId}__${referenceNumber}`);
+}
+
+function createLegacyReferenceReservationId(supplierId, referenceNumber) {
   return encodeURIComponent(`${supplierId}__${referenceNumber}`);
 }
 
@@ -568,8 +574,11 @@ function createStockMovementData({
   previousQuantity,
   newQuantity,
   currentUser,
+  movementId,
 }) {
   const movementData = {
+    movementId,
+
     movementType: STOCK_MOVEMENT_TYPES.IN,
 
     reason: STOCK_IN_REASONS.PURCHASE_RECEIPT,
@@ -832,6 +841,15 @@ export async function postGoodsReceipt(goodsReceiptData) {
         reservationId,
       );
 
+      const legacyReservationReference = doc(
+        db,
+        "goodsReceiptReferenceReservations",
+        createLegacyReferenceReservationId(
+          header.supplierId,
+          preparedData.referenceNumber,
+        ),
+      );
+
       const itemReferences = new Map(
         header.itemProductIds.map((productId) => [
           productId,
@@ -858,7 +876,12 @@ export async function postGoodsReceipt(goodsReceiptData) {
 
       const reservationSnapshot = await transaction.get(reservationReference);
 
-      if (reservationSnapshot.exists()) {
+      const legacyReservationSnapshot =
+        legacyReservationReference.id === reservationReference.id
+          ? reservationSnapshot
+          : await transaction.get(legacyReservationReference);
+
+      if (reservationSnapshot.exists() || legacyReservationSnapshot.exists()) {
         throw new Error(
           "This supplier reference number has already been posted as a Goods Receipt.",
         );
@@ -1030,6 +1053,8 @@ export async function postGoodsReceipt(goodsReceiptData) {
 
         goodsReceiptYear: receiptYear,
 
+        goodsReceiptSequence: nextSequence,
+
         purchaseOrderId: purchaseOrder.id,
 
         poNumber: header.poNumber,
@@ -1144,6 +1169,18 @@ export async function postGoodsReceipt(goodsReceiptData) {
 
           stockMovementCount: product.stockMovementCount + 1,
 
+          lastStockMovementId: movementReference.id,
+
+          lastStockMovementType: STOCK_MOVEMENT_TYPES.IN,
+
+          lastStockMovementReason: STOCK_IN_REASONS.PURCHASE_RECEIPT,
+
+          lastStockMovementQuantity: preparedItem.quantityReceived,
+
+          lastStockMovementUnitCost: preparedItem.unitCost,
+
+          lastStockMovementAt: serverTimestamp(),
+
           updatedBy: currentUser.userId,
 
           updatedAt: serverTimestamp(),
@@ -1180,6 +1217,8 @@ export async function postGoodsReceipt(goodsReceiptData) {
             newQuantity: newProductQuantity,
 
             currentUser,
+
+            movementId: movementReference.id,
           }),
         );
 

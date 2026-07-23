@@ -64,7 +64,15 @@ export const MANUAL_STOCK_IN_REASON_OPTIONS = Object.freeze([
   }),
 ]);
 
+export const STOCK_IN_OPERATION_STATUSES = Object.freeze({
+  COMPLETED: "COMPLETED",
+});
+
 export const STOCK_IN_LIMITS = Object.freeze({
+  OPERATION_ID_MIN_LENGTH: 16,
+
+  OPERATION_ID_MAX_LENGTH: 128,
+
   MAX_QUANTITY: 999999999,
 
   MAX_UNIT_COST: 999999999,
@@ -83,6 +91,9 @@ export const STOCK_IN_LIMITS = Object.freeze({
  * must contain.
  */
 export const STOCK_IN_REQUIRED_FIELDS = Object.freeze([
+  "movementId",
+  "operationId",
+
   "movementType",
   "reason",
 
@@ -112,6 +123,13 @@ export const STOCK_IN_REQUIRED_FIELDS = Object.freeze([
  * Snapshot fields added when the selected product
  * contains them.
  */
+export const PURCHASE_RECEIPT_LINK_FIELDS = Object.freeze([
+  "purchaseOrderId",
+  "poNumber",
+  "goodsReceiptId",
+  "goodsReceiptNumber",
+]);
+
 export const STOCK_IN_OPTIONAL_FIELDS = Object.freeze([
   "barcode",
 
@@ -149,6 +167,27 @@ export function normalizeStockInReference(value) {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, " ");
+}
+
+export function createStockInOperationId() {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  const randomText = Math.random().toString(36).slice(2);
+  const timestampText = Date.now().toString(36);
+
+  return `stockin_${timestampText}_${randomText}`;
+}
+
+export function isValidStockInOperationId(value) {
+  const operationId = String(value ?? "").trim();
+
+  return (
+    operationId.length >= STOCK_IN_LIMITS.OPERATION_ID_MIN_LENGTH &&
+    operationId.length <= STOCK_IN_LIMITS.OPERATION_ID_MAX_LENGTH &&
+    /^[A-Za-z0-9_-]+$/.test(operationId)
+  );
 }
 
 export function isValidStockMovementType(value) {
@@ -294,6 +333,8 @@ export function calculateStockInTotal(quantity, unitCost) {
  */
 export function createEmptyStockInForm(productId = "") {
   return {
+    operationId: createStockInOperationId(),
+
     productId: String(productId ?? "").trim(),
 
     quantityReceived: "",

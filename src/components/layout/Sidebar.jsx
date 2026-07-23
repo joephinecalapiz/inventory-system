@@ -11,6 +11,7 @@ import {
   CloseIcon,
   DashboardIcon,
   GoodsReceivingIcon,
+  GoodsReceiptHistoryIcon,
   ProductsIcon,
   InventoryIcon,
   LogoutIcon,
@@ -83,6 +84,18 @@ const NAVIGATION_ITEMS = [
     label: "Goods Receiving",
     path: "/goods-receiving",
     icon: GoodsReceivingIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Goods Receipt History",
+    path: "/goods-receipt-history",
+    icon: GoodsReceiptHistoryIcon,
     allowedRoles: [
       USER_ROLES.SUPERADMIN,
       USER_ROLES.ADMIN,
