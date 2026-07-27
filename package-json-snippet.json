@@ -1,0 +1,10 @@
+{
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "latest"
+  },
+  "scripts": {
+    "test:phase4i3:static": "node --test tests/static/phase4i3.source.test.mjs",
+    "test:phase4i3:rules": "firebase emulators:exec --only firestore --project demo-inventory-phase4i3 \"node --test tests/firestore/phase4i3.rules.test.mjs\"",
+    "test:phase4i3": "npm run test:phase4i3:static && npm run test:phase4i3:rules"
+  }
+}

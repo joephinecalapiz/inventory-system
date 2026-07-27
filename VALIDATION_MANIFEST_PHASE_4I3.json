@@ -1,0 +1,46 @@
+{
+  "phase": "4I-3",
+  "generated_files": {
+    "PHASE_4I3_MANUAL_TEST_CHECKLIST.md": {
+      "bytes": 10088,
+      "sha256": "43286af6419e1ce0c3eb14e4861d922167ccecb706ad38addc87a066400fc9a7"
+    },
+    "PHASE_4I3_RESULTS_TEMPLATE.md": {
+      "bytes": 1348,
+      "sha256": "fb86568cfddded9a269fe952cfd6b2ae09d4ff85a3374718e6875626b5be20e6"
+    },
+    "README_PHASE_4I3.md": {
+      "bytes": 2967,
+      "sha256": "4d0b31f83e63ff54d2f855c94a8c25165df7f6f7d65ef511c8dfd401826d2e61"
+    },
+    "package-json-snippet.json": {
+      "bytes": 421,
+      "sha256": "d58420a464a7052b76481b6f1487661eeca96c77d97ebe7718cc7a5d56474e27"
+    },
+    "scripts/run-phase4i3-tests.ps1": {
+      "bytes": 888,
+      "sha256": "53ab28709303a75bc525d7df3ef5caa7a3d673a78bd734e0a390a2f22de8bb82"
+    },
+    "scripts/run-phase4i3-tests.sh": {
+      "bytes": 631,
+      "sha256": "04041cbb49a5d0d5bb1be5533b9eb9f9b2320fb8d462a0cd5f136cde4f567784"
+    },
+    "tests/firestore/phase4i3.fixtures.mjs": {
+      "bytes": 8669,
+      "sha256": "1a14d4ad9548027d91beff933605e6d66abe5a94005c399ef9cf24574ad89711"
+    },
+    "tests/firestore/phase4i3.rules.test.mjs": {
+      "bytes": 14140,
+      "sha256": "949cdc3c2aa8f027e04686b430a5ea700dc52d083539e377af4edd9c48aa64c3"
+    },
+    "tests/static/phase4i3.source.test.mjs": {
+      "bytes": 4273,
+      "sha256": "34e38884b72ec0d383c9022ffcf76bf9d298bc8abc17ed834fa434a96870cca2"
+    }
+  },
+  "validation": {
+    "mjs_syntax_checks": "passed",
+    "emulator_tests_executed": false,
+    "reason": "Firebase emulator and @firebase/rules-unit-testing were unavailable in the packaging environment."
+  }
+}
