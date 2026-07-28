@@ -16,7 +16,7 @@
   min-height: 100vh;
   background: var(--layout-background);
 }
-.app-sidebar {
+/* .app-sidebar {
   position: fixed;
   inset: 0 auto 0 0;
   z-index: 50;
@@ -27,7 +27,31 @@
   background: var(--layout-sidebar-bg);
   color: var(--layout-sidebar-text);
   transition: transform 180ms ease;
+} */
+
+.app-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 50;
+
+  display: flex;
+  flex-direction: column;
+
+  width: var(--layout-sidebar-width);
+  height: 100vh;
+  height: 100dvh;
+
+  padding: 30px 20px 24px;
+  box-sizing: border-box;
+  overflow: hidden;
+
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--layout-sidebar-bg);
+  color: var(--layout-sidebar-text);
+
+  transition: transform 180ms ease;
 }
+
 .sidebar-brand {
   position: relative;
   display: flex;
@@ -91,10 +115,52 @@
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.sidebar-navigation {
+/* .sidebar-navigation {
   display: grid;
   gap: 8px;
+} */
+
+.sidebar-navigation {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+
+  flex: 1 1 auto;
+  min-height: 0;
+
+  margin: 0 -8px 0 0;
+  padding: 0 8px 12px 0;
+
+  overflow-y: auto;
+  overflow-x: hidden;
+
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  touch-action: pan-y;
 }
+
+.sidebar-navigation {
+  scrollbar-width: thin;
+  scrollbar-color: #b9c1cc transparent;
+}
+
+.sidebar-navigation::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-navigation::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-navigation::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: #b9c1cc;
+}
+
+.sidebar-navigation::-webkit-scrollbar-thumb:hover {
+  background: #98a2b3;
+}
+
 .sidebar-link,
 .sidebar-action-button {
   display: flex;
@@ -148,11 +214,26 @@
   fill: currentColor;
   stroke: none;
 }
-.sidebar-bottom {
+/* .sidebar-bottom {
   display: grid;
   gap: 4px;
   margin-top: auto;
+} */
+
+.sidebar-brand,
+.sidebar-role-badge,
+.sidebar-bottom {
+  flex-shrink: 0;
 }
+
+.sidebar-bottom {
+  flex-shrink: 0;
+  margin-top: 0;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--layout-sidebar-bg);
+}
+
 .sidebar-overlay {
   display: none;
 }

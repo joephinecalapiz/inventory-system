@@ -1,0 +1,51 @@
+{
+  "phase": "5F",
+  "baseline": "Phase4I2_Procurement_Hardening/firestore.rules",
+  "rules_bytes": 118759,
+  "validation": {
+    "javascript_syntax": "passed",
+    "rules_delimiter_check": "passed",
+    "static_tests": "5 passed, 0 failed",
+    "emulator_rules_tests_executed": false,
+    "emulator_test_count": 20,
+    "reason": "Firebase CLI and Firestore emulator were not installed in the packaging environment."
+  },
+  "files": {
+    "README_PHASE_5F.md": {
+      "bytes": 3532,
+      "sha256": "4d03e8a3885be23b9c586d0b4f100961dc10582a495710d3a096990238f00c20"
+    },
+    "firestore.rules": {
+      "bytes": 118759,
+      "sha256": "e8cfe1c8331438b3e43fee737e70c9ac713fba18a065e030202b123b44013723"
+    },
+    "scripts/run-phase5f-tests.ps1": {
+      "bytes": 793,
+      "sha256": "99b80e603e2b934ddeaf73a8ef9043fa21ae4c2c18226b3c9accd7b5bb75c6cf"
+    },
+    "scripts/run-phase5f-tests.sh": {
+      "bytes": 565,
+      "sha256": "3f5d11b9b3b6d633a62572a009ff5b86175b768cd8c7bb96108b84f50dbce8b6"
+    },
+    "src/constants/stockOut.js": {
+      "bytes": 8367,
+      "sha256": "85c3bc522b4ba18c98eac5eeb9db2610416f04dad6bb7bc8ab439ee5c7677b70"
+    },
+    "src/services/stockOutService.js": {
+      "bytes": 23963,
+      "sha256": "9b407aa4b4196f8ad7b18ae622d844c3ea17c84701487ddb4195d9d4a568188e"
+    },
+    "tests/firestore/phase5f.fixtures.mjs": {
+      "bytes": 2584,
+      "sha256": "5680652bc332cae004e9c0146444d5d054a560cf249def1ac9e5bb6d342457ba"
+    },
+    "tests/firestore/phase5f.stockout.rules.test.mjs": {
+      "bytes": 16525,
+      "sha256": "20d8f5c0806088ebe12dc17a344a870dfbecb3b8bef1e88e1eb5af1df0065ffb"
+    },
+    "tests/static/phase5f.hardening.test.mjs": {
+      "bytes": 2662,
+      "sha256": "80f2c62f4cf111b56edb9675ce3920a1eca9d323a59a75a3950b9198203ec128"
+    }
+  }
+}

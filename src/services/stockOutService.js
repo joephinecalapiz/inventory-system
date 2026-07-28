@@ -193,11 +193,18 @@ function createReleasedDateTimestamp(dateInput) {
 
   const [yearText, monthText, dayText] = dateReleasedKey.split("-");
 
+  /*
+   * Store the selected local date at midnight.
+   *
+   * This keeps today's release timestamp at or
+   * before request.time so Firestore Rules can
+   * reject genuinely future dates.
+   */
   const releasedDate = new Date(
     Number(yearText),
     Number(monthText) - 1,
     Number(dayText),
-    12,
+    0,
     0,
     0,
     0,
@@ -678,6 +685,116 @@ function getMovementSortTime(movement) {
   );
 }
 
+function prepareMovementId(value) {
+  const movementId = String(value ?? "").trim();
+
+  if (!movementId) {
+    throw new Error("Stock-Out movement ID is required.");
+  }
+
+  if (movementId.includes("/")) {
+    throw new Error("Stock-Out movement ID is invalid.");
+  }
+
+  return movementId;
+}
+
+function normalizeStockOutMovement(movementId, movement) {
+  const movementType = String(movement?.movementType ?? movement?.type ?? "")
+    .trim()
+    .toUpperCase();
+
+  const quantity = Number(
+    movement?.quantity ?? movement?.quantityReleased ?? 0,
+  );
+
+  const unitCost = Number(movement?.unitCost ?? 0);
+
+  const storedTotalCost = Number(movement?.totalCost);
+
+  const calculatedTotalCost =
+    Number.isFinite(quantity) && Number.isFinite(unitCost)
+      ? Math.round((quantity * unitCost + Number.EPSILON) * 100) / 100
+      : 0;
+
+  return {
+    id: movementId,
+
+    ...movement,
+
+    movementId: String(movement?.movementId ?? movementId).trim(),
+
+    operationId: String(movement?.operationId ?? movementId).trim(),
+
+    movementType,
+
+    reason: String(movement?.reason ?? "")
+      .trim()
+      .toUpperCase(),
+
+    productId: String(movement?.productId ?? "").trim(),
+
+    productName: normalizeStockOutText(movement?.productName),
+
+    productSku: String(movement?.productSku ?? "")
+      .trim()
+      .toUpperCase(),
+
+    quantity: Number.isFinite(quantity) ? quantity : 0,
+
+    previousQuantity: Number(movement?.previousQuantity ?? 0),
+
+    newQuantity: Number(movement?.newQuantity ?? 0),
+
+    unitCost: Number.isFinite(unitCost) ? unitCost : 0,
+
+    totalCost: Number.isFinite(storedTotalCost)
+      ? storedTotalCost
+      : calculatedTotalCost,
+
+    destination: normalizeStockOutText(movement?.destination),
+
+    referenceNumber: normalizeStockOutReference(movement?.referenceNumber),
+
+    remarks: String(movement?.remarks ?? "").trim(),
+
+    releasedBy: String(
+      movement?.releasedBy ?? movement?.createdBy ?? "",
+    ).trim(),
+
+    releasedByName: normalizeStockOutText(movement?.releasedByName),
+
+    sortTime: getMovementSortTime(movement ?? {}),
+  };
+}
+
+/**
+ * Loads one permanent OUT movement directly from
+ * Firestore for the detail view.
+ */
+export async function getStockOutReceiptDetails(movementId) {
+  const normalizedMovementId = prepareMovementId(movementId);
+
+  const movementReference = doc(db, "stockMovements", normalizedMovementId);
+
+  const movementSnapshot = await getDoc(movementReference);
+
+  if (!movementSnapshot.exists()) {
+    throw new Error("The selected Stock-Out movement could not be found.");
+  }
+
+  const movement = normalizeStockOutMovement(
+    movementSnapshot.id,
+    movementSnapshot.data(),
+  );
+
+  if (movement.movementType !== STOCK_OUT_MOVEMENT_TYPE) {
+    throw new Error("The selected movement is not a Stock-Out record.");
+  }
+
+  return movement;
+}
+
 /**
  * Real-time permanent OUT movement history.
  *
@@ -692,59 +809,16 @@ export function subscribeToStockOutReceipts(onData, onError) {
 
     (snapshot) => {
       const receipts = snapshot.docs
-        .map((movementSnapshot) => {
-          const movement = movementSnapshot.data();
-
-          const movementType = String(
-            movement.movementType ?? movement.type ?? "",
-          )
-            .trim()
-            .toUpperCase();
-
-          const quantity = Number(
-            movement.quantity ?? movement.quantityReleased ?? 0,
-          );
-
-          const unitCost = Number(movement.unitCost ?? 0);
-
-          const storedTotalCost = Number(movement.totalCost);
-
-          const calculatedTotalCost =
-            Number.isFinite(quantity) && Number.isFinite(unitCost)
-              ? Math.round((quantity * unitCost + Number.EPSILON) * 100) / 100
-              : 0;
-
-          return {
-            id: movementSnapshot.id,
-
-            ...movement,
-
-            movementType,
-
-            quantity: Number.isFinite(quantity) ? quantity : 0,
-
-            previousQuantity: Number(movement.previousQuantity ?? 0),
-
-            newQuantity: Number(movement.newQuantity ?? 0),
-
-            unitCost: Number.isFinite(unitCost) ? unitCost : 0,
-
-            totalCost: Number.isFinite(storedTotalCost)
-              ? storedTotalCost
-              : calculatedTotalCost,
-
-            destination: normalizeStockOutText(movement.destination),
-
-            referenceNumber: normalizeStockOutReference(
-              movement.referenceNumber,
-            ),
-          };
-        })
+        .map((movementSnapshot) =>
+          normalizeStockOutMovement(
+            movementSnapshot.id,
+            movementSnapshot.data(),
+          ),
+        )
         .filter((movement) => movement.movementType === STOCK_OUT_MOVEMENT_TYPE)
         .sort(
           (firstMovement, secondMovement) =>
-            getMovementSortTime(secondMovement) -
-            getMovementSortTime(firstMovement),
+            secondMovement.sortTime - firstMovement.sortTime,
         );
 
       if (typeof onData === "function") {

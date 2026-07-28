@@ -4,15 +4,20 @@ import { MenuIcon } from "./LayoutIcons";
 const PAGE_TITLES = {
   "/dashboard": "Dashboard",
   "/inventory": "Inventory List",
-  "/stock-in": "Stock In & Receipt History",
+
+  "/stock-in": "Stock In",
+  "/stock-out": "Stock Out",
+
   "/suppliers": "Supplier Management",
   "/purchase-orders": "Purchase Orders",
   "/goods-receiving": "Goods Receiving",
   "/goods-receipt-history": "Goods Receipt History",
+
   "/products": "Product Management",
   "/categories": "Category Management",
   "/units": "Units of Measurement",
   "/add-products": "New Products",
+
   "/users": "User Management",
   "/cashier": "Cashier Portal",
   "/reports": "Reports and Audit",
