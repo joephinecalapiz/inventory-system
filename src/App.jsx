@@ -15,6 +15,8 @@ import GoodsReceiptHistory from "./pages/GoodsReceiptHistory";
 import Inventory from "./pages/Inventory";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import StockIn from "./pages/StockIn";
+import StockOut from "./pages/StockOut";
+
 import Suppliers from "./pages/Suppliers";
 import Login from "./pages/Login";
 import Products from "./pages/Products";
@@ -229,6 +231,23 @@ function App() {
               ]}
             >
               <StockIn currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/stock-out"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <StockOut currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

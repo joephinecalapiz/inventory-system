@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import "../styles/StockOut.css";
 
+import StockOutHistory from "../components/StockOutHistory";
+
 import { USER_ROLES } from "../constants/roles";
 
 import {
@@ -916,6 +918,8 @@ function StockOut({ currentUserRole }) {
           </div>
         )}
       </section>
+
+      <StockOutHistory />
 
       {isConfirmationOpen && selectedProduct && (
         <div

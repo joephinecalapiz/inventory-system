@@ -23,6 +23,8 @@ import {
   UserIcon,
 } from "./LayoutIcons";
 
+import StockOutIcon from "./StockOutIcon";
+
 import logo from "../../assets/logo.png";
 
 const NAVIGATION_ITEMS = [
@@ -48,6 +50,18 @@ const NAVIGATION_ITEMS = [
     label: "Stock In",
     path: "/stock-in",
     icon: StockInIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Stock Out",
+    path: "/stock-out",
+    icon: StockOutIcon,
     allowedRoles: [
       USER_ROLES.SUPERADMIN,
       USER_ROLES.ADMIN,

@@ -1,0 +1,58 @@
+{
+  "phase": "5G",
+  "package_type": "testing-only",
+  "automated_tests": {
+    "static": 10,
+    "firestore_rules": 38,
+    "total": 48
+  },
+  "validation": {
+    "javascript_syntax": "passed",
+    "static_tests_executed": true,
+    "static_tests_result": "10 passed, 0 failed",
+    "firestore_emulator_tests_executed": false,
+    "reason": "Firebase CLI and the Firestore emulator were not available in the packaging environment."
+  },
+  "files": {
+    "PHASE_5G_MANUAL_TEST_CHECKLIST.md": {
+      "bytes": 9821,
+      "sha256": "9aa43137f036f6c9f89b7597e7e86a3845f16004d01a8fb87797799731346a04"
+    },
+    "PHASE_5G_RESULTS_TEMPLATE.md": {
+      "bytes": 1849,
+      "sha256": "d51a80f03a017738b1f2c86de008fb7ca3a0b6dc10512e21b5b661df84b64b46"
+    },
+    "PHASE_5G_TEST_DATA.md": {
+      "bytes": 1250,
+      "sha256": "b868697b7e1c712da6934a6c8ed7350c5bed03933e342c798e6e0b17b9063644"
+    },
+    "README_PHASE_5G.md": {
+      "bytes": 2693,
+      "sha256": "3d5709c733cb4e752964b3a5ce839722e6bd33c7ec38e6812173992a768fcf2e"
+    },
+    "package-json-snippet.json": {
+      "bytes": 466,
+      "sha256": "32456c3d4424bcdd0d4ee29b57cc843345968e0f08529851994f59bc2e52e4ea"
+    },
+    "scripts/run-phase5g-tests.ps1": {
+      "bytes": 1085,
+      "sha256": "ae7657a48dc85888652a30d2d24372259bcb7541ea4ea2d18abf5958e3bd0e6b"
+    },
+    "scripts/run-phase5g-tests.sh": {
+      "bytes": 754,
+      "sha256": "50bfc3574a9513c0bec55afaa7ac6081c6ff1fcd1e4dce610a8420e382938adc"
+    },
+    "tests/firestore/phase5g.fixtures.mjs": {
+      "bytes": 2584,
+      "sha256": "c22ec054956d78fddc178c25d0cd0c5f047043d04565d873b0234f68cc3cc855"
+    },
+    "tests/firestore/phase5g.stockout.rules.test.mjs": {
+      "bytes": 22184,
+      "sha256": "bad2a87832ee1039986919108444fddb986153fdef705266d3c4f666a180d4b2"
+    },
+    "tests/static/phase5g.source-regression.test.mjs": {
+      "bytes": 7161,
+      "sha256": "12e19fed60e221731f790efa07e9b59aab1af2e63760147eafd196fed04ffd61"
+    }
+  }
+}
