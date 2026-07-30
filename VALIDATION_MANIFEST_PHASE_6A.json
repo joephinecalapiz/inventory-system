@@ -1,0 +1,25 @@
+{
+  "phase": "6A",
+  "title": "Stock Adjustment Requirements, Constants, and Firestore Schema",
+  "firestore_rules_modified": false,
+  "service_created": false,
+  "page_created": false,
+  "files": {
+    "README_PHASE_6A.md": {
+      "bytes": 1089,
+      "sha256": "4262ac396a8c8e536a213817f3ac9d3ab5dbf243b5ca558aac17b98b6a422ec8"
+    },
+    "docs/PHASE_6A_STOCK_ADJUSTMENT_SCHEMA.md": {
+      "bytes": 9546,
+      "sha256": "b8ceb2e1f6028997aebc9ba231b0ef6d82d3941dbfca5b895e03e06144025c7b"
+    },
+    "src/constants/stockAdjustment.js": {
+      "bytes": 19587,
+      "sha256": "7caf5c10966128db2d57d6c454c9c3dbf1f5527ba6456231be54e20762d1ce28"
+    },
+    "tests/static/phase6a.stock-adjustment-constants.test.mjs": {
+      "bytes": 5821,
+      "sha256": "1cf90835159d777dc4445733b3aa206e3c0e8de1c9cc470864918dcccee5adeb"
+    }
+  }
+}
