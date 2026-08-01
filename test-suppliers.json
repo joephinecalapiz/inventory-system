@@ -1,0 +1,134 @@
+[
+  {
+    "name": "BluePeak Waterworks Trading",
+    "contactPerson": "Mara Villanueva",
+    "contactNumber": "+63 917 555 0101",
+    "email": "sales@bluepeak-test.example",
+    "address": "Test Warehouse 1, Cagayan de Oro City",
+    "tin": "000-111-222-001",
+    "paymentTerm": "NET_30",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - water meters and waterworks materials."
+  },
+  {
+    "name": "Northline Valve Supply",
+    "contactPerson": "Paolo Reyes",
+    "contactNumber": "+63 917 555 0102",
+    "email": "orders@northline-test.example",
+    "address": "Test Industrial Park, Iligan City",
+    "tin": "000-111-222-002",
+    "paymentTerm": "NET_15",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - valves and control accessories."
+  },
+  {
+    "name": "Riverstone PE Fittings Depot",
+    "contactPerson": "Angela Lim",
+    "contactNumber": "+63 917 555 0103",
+    "email": "contact@riverstone-test.example",
+    "address": "Test Road, Davao City",
+    "tin": "000-111-222-003",
+    "paymentTerm": "CASH_ON_DELIVERY",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - PE and HDPE fittings."
+  },
+  {
+    "name": "Golden Harbor GI Products",
+    "contactPerson": "Carlo Mendoza",
+    "contactNumber": "+63 917 555 0104",
+    "email": "sales@goldenharbor-test.example",
+    "address": "Test Commercial Center, Cebu City",
+    "tin": "000-111-222-004",
+    "paymentTerm": "NET_45",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - GI pipes, fittings, and flanges."
+  },
+  {
+    "name": "PrimeFlow Pumps and Motors",
+    "contactPerson": "Liza Torres",
+    "contactNumber": "+63 917 555 0105",
+    "email": "service@primeflow-test.example",
+    "address": "Test Equipment District, General Santos City",
+    "tin": "000-111-222-005",
+    "paymentTerm": "NET_30",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - pumps, motors, and spare parts."
+  },
+  {
+    "name": "MetroLube Industrial Supplies",
+    "contactPerson": "Nico Santos",
+    "contactNumber": "+63 917 555 0106",
+    "email": "orders@metrolube-test.example",
+    "address": "Test Avenue, Quezon City",
+    "tin": "000-111-222-006",
+    "paymentTerm": "PREPAID",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - oils, lubricants, and consumables."
+  },
+  {
+    "name": "ClearSource Water Quality Systems",
+    "contactPerson": "Janelle Cruz",
+    "contactNumber": "+63 917 555 0107",
+    "email": "info@clearsource-test.example",
+    "address": "Test Technology Hub, Tagum City",
+    "tin": "000-111-222-007",
+    "paymentTerm": "NET_60",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - water quality and testing equipment."
+  },
+  {
+    "name": "IronBridge Fabricated Fittings",
+    "contactPerson": "Ramon Dela Peña",
+    "contactNumber": "+63 917 555 0108",
+    "email": "fabrication@ironbridge-test.example",
+    "address": "Test Fabrication Zone, Cagayan de Oro City",
+    "tin": "000-111-222-008",
+    "paymentTerm": "CUSTOM",
+    "customPaymentTerms": "50 percent deposit, balance before delivery",
+    "notes": "TEST DATA - fabricated fittings and custom metal works."
+  },
+  {
+    "name": "EastBay Consumables Center",
+    "contactPerson": "Faith Navarro",
+    "contactNumber": "+63 917 555 0109",
+    "email": "sales@eastbay-test.example",
+    "address": "Test Supply Center, Butuan City",
+    "tin": "000-111-222-009",
+    "paymentTerm": "NET_7",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - general consumables and small tools."
+  },
+  {
+    "name": "AquaGrid Metering Solutions",
+    "contactPerson": "Miguel Ramos",
+    "contactNumber": "+63 917 555 0110",
+    "email": "metering@aquagrid-test.example",
+    "address": "Test Business Park, Valencia City",
+    "tin": "000-111-222-010",
+    "paymentTerm": "NET_30",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - water meters and metering accessories."
+  },
+  {
+    "name": "Crestline Parts Distribution",
+    "contactPerson": "Bea Castillo",
+    "contactNumber": "+63 917 555 0111",
+    "email": "parts@crestline-test.example",
+    "address": "Test Distribution Compound, Malaybalay City",
+    "tin": "000-111-222-011",
+    "paymentTerm": "CASH_ON_DELIVERY",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - replacement parts and maintenance supplies."
+  },
+  {
+    "name": "Summit Pipe and Flange Supply",
+    "contactPerson": "Daniel Flores",
+    "contactNumber": "+63 917 555 0112",
+    "email": "orders@summitpipe-test.example",
+    "address": "Test Logistics Estate, Ozamiz City",
+    "tin": "000-111-222-012",
+    "paymentTerm": "NET_15",
+    "customPaymentTerms": "",
+    "notes": "TEST DATA - pipes, flanges, and installation materials."
+  }
+]

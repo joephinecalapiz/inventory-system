@@ -1,0 +1,42 @@
+{
+  "title": "Phase 6H Manual Runtime Fix",
+  "files_to_replace": [
+    "src/pages/Inventory.jsx",
+    "src/pages/StockOut.jsx",
+    "src/services/stockOutService.js",
+    "src/services/purchaseOrderService.js"
+  ],
+  "firestore_rules_changed": false,
+  "node_syntax_checks_passed": true,
+  "targeted_static_tests_passed": true,
+  "files": {
+    "README_PHASE_6H_MANUAL_RUNTIME_FIX.md": {
+      "bytes": 2473,
+      "sha256": "b8fcaa985d921020a1ef1295c0ff6d43d653425766e63507e4e96536278c3947"
+    },
+    "scripts/run-phase6h-manual-runtime-fix-tests.ps1": {
+      "bytes": 372,
+      "sha256": "0d3c5afe3a23e52cb9c06e2a2b1db67d65966837f492d21b07f22bdd8bf1fd1e"
+    },
+    "src/pages/Inventory.jsx": {
+      "bytes": 20425,
+      "sha256": "dc8bcd2efeaceeb75782cbd863004a5bf8bdb5634efb9a024dfe4ddfef234c1d"
+    },
+    "src/pages/StockOut.jsx": {
+      "bytes": 29001,
+      "sha256": "fe55b8866083669226b8e078a5bd3e0b76c6a9eb1ff29980188e5a9f5d989873"
+    },
+    "src/services/purchaseOrderService.js": {
+      "bytes": 41023,
+      "sha256": "50b6a0a6bfdbcae675dbd4e6d06a12531e305bd7b64ad815fb0d4f07ca24f579"
+    },
+    "src/services/stockOutService.js": {
+      "bytes": 20833,
+      "sha256": "a92c39f41939dd23fe50574d6d4b12c9faed42768b11bff5db1bf181e11ec5ac"
+    },
+    "tests/static/phase6h.manual-runtime-fix.test.mjs": {
+      "bytes": 3856,
+      "sha256": "1d351c6da4444d3c810a971351348bac70a4246972a195badac32e6280e4ae23"
+    }
+  }
+}

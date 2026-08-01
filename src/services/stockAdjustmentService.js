@@ -6,6 +6,7 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
+  writeBatch,
 } from "firebase/firestore";
 
 import { auth, db } from "../firebase/firebase";
@@ -433,244 +434,265 @@ export async function createStockAdjustmentRequest(stockAdjustmentData) {
 
   const productReference = doc(db, "products", preparedInput.productId);
 
-  let result = null;
+  async function loadExistingReplay() {
+    const operationSnapshot = await getDoc(operationReference);
+
+    if (!operationSnapshot.exists()) {
+      return null;
+    }
+
+    const existingOperation = operationSnapshot.data();
+
+    if (!isSameCreateRequest(existingOperation, preparedInput, currentUser)) {
+      throw new Error(
+        "This Stock Adjustment operation ID is already linked to another request.",
+      );
+    }
+
+    const existingRequestSnapshot = await getDoc(requestReference);
+
+    if (!existingRequestSnapshot.exists()) {
+      throw new Error(
+        "The existing Stock Adjustment operation is missing its linked request.",
+      );
+    }
+
+    const existingRequest = existingRequestSnapshot.data();
+
+    if (
+      existingRequest.adjustmentId !== preparedInput.adjustmentId ||
+      existingRequest.createOperationId !== preparedInput.createOperationId ||
+      existingRequest.requestedBy !== currentUser.userId
+    ) {
+      throw new Error("The existing Stock Adjustment request is inconsistent.");
+    }
+
+    return buildRequestResult(existingRequest, {
+      isReplay: true,
+    });
+  }
 
   try {
-    await runTransaction(db, async (transaction) => {
-      /*
-       * Read the idempotency record first.
-       */
-      const operationSnapshot = await transaction.get(operationReference);
+    /*
+     * Keep request reads outside the atomic write.
+     *
+     * The previous implementation used a Firestore transaction
+     * that read the operation and Product, then created the request
+     * and operation. In the real browser workflow, those reads and
+     * both large create validators shared one Rules evaluation and
+     * exceeded Firestore's 1000-expression limit.
+     *
+     * The two writes remain atomic through writeBatch(). The Rules
+     * still compare the request with the current Product and linked
+     * operation using get() and getAfter().
+     */
+    const existingReplay = await loadExistingReplay();
 
-      if (operationSnapshot.exists()) {
-        const existingOperation = operationSnapshot.data();
+    if (existingReplay) {
+      return existingReplay;
+    }
 
-        if (
-          !isSameCreateRequest(existingOperation, preparedInput, currentUser)
-        ) {
-          throw new Error(
-            "This Stock Adjustment operation ID is already linked to another request.",
-          );
-        }
+    const existingRequestSnapshot = await getDoc(requestReference);
 
-        const existingRequestSnapshot = await transaction.get(requestReference);
-
-        if (!existingRequestSnapshot.exists()) {
-          throw new Error(
-            "The existing Stock Adjustment operation is missing its linked request.",
-          );
-        }
-
-        const existingRequest = existingRequestSnapshot.data();
-
-        if (
-          existingRequest.adjustmentId !== preparedInput.adjustmentId ||
-          existingRequest.createOperationId !==
-            preparedInput.createOperationId ||
-          existingRequest.requestedBy !== currentUser.userId
-        ) {
-          throw new Error(
-            "The existing Stock Adjustment request is inconsistent.",
-          );
-        }
-
-        result = buildRequestResult(existingRequest, {
-          isReplay: true,
-        });
-
-        return;
-      }
-
-      const requestSnapshot = await transaction.get(requestReference);
-
-      if (requestSnapshot.exists()) {
-        throw new Error(
-          "This Stock Adjustment ID is already in use. Refresh the form and try again.",
-        );
-      }
-
-      const productSnapshot = await transaction.get(productReference);
-
-      if (!productSnapshot.exists()) {
-        throw new Error("The selected Product no longer exists.");
-      }
-
-      const product = productSnapshot.data();
-
-      const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
-
-      if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
-        throw new Error("Inactive Products cannot be adjusted.");
-      }
-
-      const systemQuantityAtRequest = Number(product.quantity ?? 0);
-
-      if (!isValidStockAdjustmentQuantity(systemQuantityAtRequest)) {
-        throw new Error(
-          "The selected Product contains an invalid current stock quantity.",
-        );
-      }
-
-      const quantityDifference = calculateStockAdjustmentDifference(
-        systemQuantityAtRequest,
-        preparedInput.actualCountedQuantity,
+    if (existingRequestSnapshot.exists()) {
+      throw new Error(
+        "This Stock Adjustment request ID already exists without its expected operation record. Create a new request or remove the incomplete emulator record.",
       );
+    }
 
-      if (quantityDifference === null) {
-        throw new Error(
-          "Unable to calculate a valid Stock Adjustment difference.",
-        );
-      }
+    const productSnapshot = await getDoc(productReference);
 
-      if (quantityDifference === 0) {
-        throw new Error(
-          "No Stock Adjustment is required because the actual count matches the system quantity.",
-        );
-      }
+    if (!productSnapshot.exists()) {
+      throw new Error("The selected Product no longer exists.");
+    }
 
-      const adjustmentDirection =
-        getStockAdjustmentDirection(quantityDifference);
+    const product = productSnapshot.data();
 
-      if (
-        !adjustmentDirection ||
-        !Object.values(STOCK_ADJUSTMENT_DIRECTIONS).includes(
-          adjustmentDirection,
-        )
-      ) {
-        throw new Error("Unable to determine the Stock Adjustment direction.");
-      }
+    const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
 
-      if (
-        !isAdjustmentReasonAllowedForDirection(
-          preparedInput.reason,
-          adjustmentDirection,
-        )
-      ) {
-        throw new Error(
-          "The selected reason is not valid for this adjustment direction.",
-        );
-      }
+    if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
+      throw new Error("Inactive Products cannot be adjusted.");
+    }
 
-      const productName = getProductName(product);
+    const systemQuantityAtRequest = Number(product.quantity ?? 0);
 
-      const productSku = getProductSku(product);
-
-      const unitCostAtRequest = resolveProductUnitCost(product);
-
-      const estimatedAdjustmentValue = calculateStockAdjustmentValue(
-        quantityDifference,
-        unitCostAtRequest,
+    if (!isValidStockAdjustmentQuantity(systemQuantityAtRequest)) {
+      throw new Error(
+        "The selected Product contains an invalid current stock quantity.",
       );
+    }
 
-      const rawEstimatedValue =
-        Math.abs(quantityDifference) * unitCostAtRequest;
+    const quantityDifference = calculateStockAdjustmentDifference(
+      systemQuantityAtRequest,
+      preparedInput.actualCountedQuantity,
+    );
 
-      if (
-        !Number.isFinite(rawEstimatedValue) ||
-        rawEstimatedValue > STOCK_ADJUSTMENT_LIMITS.MAX_TOTAL_VALUE
-      ) {
-        throw new Error(
-          "The estimated adjustment value exceeds the allowed maximum.",
-        );
-      }
+    if (quantityDifference === null) {
+      throw new Error(
+        "Unable to calculate a valid Stock Adjustment difference.",
+      );
+    }
 
-      const requestData = {
-        adjustmentId: preparedInput.adjustmentId,
+    if (quantityDifference === 0) {
+      throw new Error(
+        "No Stock Adjustment is required because the actual count matches the system quantity.",
+      );
+    }
 
-        createOperationId: preparedInput.createOperationId,
+    const adjustmentDirection = getStockAdjustmentDirection(quantityDifference);
 
-        status: STOCK_ADJUSTMENT_STATUSES.SUBMITTED,
+    if (
+      !adjustmentDirection ||
+      !Object.values(STOCK_ADJUSTMENT_DIRECTIONS).includes(adjustmentDirection)
+    ) {
+      throw new Error("Unable to determine the Stock Adjustment direction.");
+    }
 
-        productId: preparedInput.productId,
-
-        productName,
-
-        productSku,
-
-        systemQuantityAtRequest,
-
-        actualCountedQuantity: preparedInput.actualCountedQuantity,
-
-        quantityDifference,
-
+    if (
+      !isAdjustmentReasonAllowedForDirection(
+        preparedInput.reason,
         adjustmentDirection,
+      )
+    ) {
+      throw new Error(
+        "The selected reason is not valid for this adjustment direction.",
+      );
+    }
 
-        unitCostAtRequest,
+    const productName = getProductName(product);
 
-        estimatedAdjustmentValue,
+    const productSku = getProductSku(product);
 
-        reason: preparedInput.reason,
+    const unitCostAtRequest = resolveProductUnitCost(product);
 
-        referenceNumber: preparedInput.referenceNumber,
+    const estimatedAdjustmentValue = calculateStockAdjustmentValue(
+      quantityDifference,
+      unitCostAtRequest,
+    );
 
-        countDate: preparedInput.countDate,
+    const rawEstimatedValue = Math.abs(quantityDifference) * unitCostAtRequest;
 
-        countDateKey: preparedInput.countDateKey,
+    if (
+      !Number.isFinite(rawEstimatedValue) ||
+      rawEstimatedValue > STOCK_ADJUSTMENT_LIMITS.MAX_TOTAL_VALUE
+    ) {
+      throw new Error(
+        "The estimated adjustment value exceeds the allowed maximum.",
+      );
+    }
 
-        remarks: preparedInput.remarks,
+    const requestData = {
+      adjustmentId: preparedInput.adjustmentId,
 
-        requestedBy: currentUser.userId,
+      createOperationId: preparedInput.createOperationId,
 
-        requestedByName: currentUser.displayName,
+      status: STOCK_ADJUSTMENT_STATUSES.SUBMITTED,
 
-        createdBy: currentUser.userId,
+      productId: preparedInput.productId,
 
-        createdAt: serverTimestamp(),
+      productName,
 
-        updatedAt: serverTimestamp(),
-      };
+      productSku,
 
-      addOptionalProductSnapshots(requestData, product);
+      systemQuantityAtRequest,
 
-      const operationData = {
-        operationId: preparedInput.createOperationId,
+      actualCountedQuantity: preparedInput.actualCountedQuantity,
 
-        operationType: STOCK_ADJUSTMENT_OPERATION_TYPES.CREATE_REQUEST,
+      quantityDifference,
 
-        operationStatus: STOCK_ADJUSTMENT_OPERATION_STATUSES.COMPLETED,
+      adjustmentDirection,
 
-        adjustmentId: preparedInput.adjustmentId,
+      unitCostAtRequest,
 
-        productId: preparedInput.productId,
+      estimatedAdjustmentValue,
 
-        actualCountedQuantity: preparedInput.actualCountedQuantity,
+      reason: preparedInput.reason,
 
-        quantityDifference,
+      referenceNumber: preparedInput.referenceNumber,
 
-        adjustmentDirection,
+      countDate: preparedInput.countDate,
 
-        reason: preparedInput.reason,
+      countDateKey: preparedInput.countDateKey,
 
-        referenceNumber: preparedInput.referenceNumber,
+      remarks: preparedInput.remarks,
 
-        countDate: preparedInput.countDate,
+      requestedBy: currentUser.userId,
 
-        countDateKey: preparedInput.countDateKey,
+      requestedByName: currentUser.displayName,
 
-        remarks: preparedInput.remarks,
+      createdBy: currentUser.userId,
 
-        performedBy: currentUser.userId,
+      createdAt: serverTimestamp(),
 
-        performedByName: currentUser.displayName,
+      updatedAt: serverTimestamp(),
+    };
 
-        createdBy: currentUser.userId,
+    addOptionalProductSnapshots(requestData, product);
 
-        createdAt: serverTimestamp(),
-      };
+    const operationData = {
+      operationId: preparedInput.createOperationId,
 
-      /*
-       * No Product write and no Stock Movement
-       * write is allowed in Phase 6B.
-       */
-      transaction.set(requestReference, requestData);
+      operationType: STOCK_ADJUSTMENT_OPERATION_TYPES.CREATE_REQUEST,
 
-      transaction.set(operationReference, operationData);
+      operationStatus: STOCK_ADJUSTMENT_OPERATION_STATUSES.COMPLETED,
 
-      result = buildRequestResult(requestData);
-    });
+      adjustmentId: preparedInput.adjustmentId,
 
-    return result;
+      productId: preparedInput.productId,
+
+      actualCountedQuantity: preparedInput.actualCountedQuantity,
+
+      quantityDifference,
+
+      adjustmentDirection,
+
+      reason: preparedInput.reason,
+
+      referenceNumber: preparedInput.referenceNumber,
+
+      countDate: preparedInput.countDate,
+
+      countDateKey: preparedInput.countDateKey,
+
+      remarks: preparedInput.remarks,
+
+      performedBy: currentUser.userId,
+
+      performedByName: currentUser.displayName,
+
+      createdBy: currentUser.userId,
+
+      createdAt: serverTimestamp(),
+    };
+
+    const batch = writeBatch(db);
+
+    batch.set(requestReference, requestData);
+
+    batch.set(operationReference, operationData);
+
+    await batch.commit();
+
+    return buildRequestResult(requestData);
   } catch (error) {
+    /*
+     * A retry may race with a successful first submission. When
+     * that happens, the immutable Rules deny the second write.
+     * Load the stored linked documents and return them as a replay.
+     */
+    try {
+      const replay = await loadExistingReplay();
+
+      if (replay) {
+        return replay;
+      }
+    } catch (replayError) {
+      console.error(
+        "Unable to verify the existing Stock Adjustment request:",
+        replayError,
+      );
+    }
+
     console.error("Unable to create Stock Adjustment request:", error);
 
     throw error;

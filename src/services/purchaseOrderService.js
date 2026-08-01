@@ -745,28 +745,32 @@ export async function createPurchaseOrderDraft(purchaseOrderData) {
   let result = null;
 
   try {
+    /*
+     * Supplier and Product reads are independent
+     * validation reads. Keep them outside the counter
+     * transaction so the final atomic write request
+     * stays below the Firestore Rules expression limit.
+     */
+    const [supplierSnapshot, ...productSnapshots] = await Promise.all([
+      getDoc(supplierReference),
+      ...productReferences.map((productReference) => getDoc(productReference)),
+    ]);
+
+    const supplierSnapshotData = validateSupplierSnapshot(supplierSnapshot);
+
+    const itemSnapshots = preparedData.items.map((preparedItem, index) =>
+      validateProductSnapshot(productSnapshots[index], preparedItem),
+    );
+
+    const summary = calculateDraftSummary(itemSnapshots, preparedData);
+
     await runTransaction(db, async (transaction) => {
       /*
-       * Every transaction read must happen before
-       * the first write.
+       * Only the PO number counter is read inside the
+       * transaction. The counter, Draft header, and all
+       * Draft items still commit together.
        */
-      const supplierSnapshot = await transaction.get(supplierReference);
-
-      const productSnapshots = [];
-
-      for (const productReference of productReferences) {
-        productSnapshots.push(await transaction.get(productReference));
-      }
-
       const counterSnapshot = await transaction.get(counterReference);
-
-      const supplierSnapshotData = validateSupplierSnapshot(supplierSnapshot);
-
-      const itemSnapshots = preparedData.items.map((preparedItem, index) =>
-        validateProductSnapshot(productSnapshots[index], preparedItem),
-      );
-
-      const summary = calculateDraftSummary(itemSnapshots, preparedData);
 
       const previousSequence = counterSnapshot.exists()
         ? Number(counterSnapshot.data().lastSequence ?? 0)
@@ -788,66 +792,53 @@ export async function createPurchaseOrderDraft(purchaseOrderData) {
 
       const itemProductIds = itemSnapshots.map((item) => item.productId);
 
+      transaction.set(
+        counterReference,
+        {
+          year: orderYear,
+          lastSequence: nextSequence,
+          updatedBy: currentUser.userId,
+          updatedAt: serverTimestamp(),
+        },
+        {
+          merge: true,
+        },
+      );
+
       transaction.set(purchaseOrderReference, {
         poNumber,
-
         poYear: orderYear,
-
         poSequence: nextSequence,
-
         supplierId: preparedData.supplierId,
-
         ...supplierSnapshotData,
-
         orderDate: createPurchaseOrderTimestamp(
           preparedData.orderDate,
           "Purchase Order date",
         ),
-
         orderDateKey: preparedData.orderDate,
-
         expectedDeliveryDate: createPurchaseOrderTimestamp(
           preparedData.expectedDeliveryDate,
           "Expected delivery date",
           true,
         ),
-
         expectedDeliveryDateKey: preparedData.expectedDeliveryDate,
-
         status: PURCHASE_ORDER_STATUSES.DRAFT,
-
         itemCount: summary.itemCount,
-
         itemProductIds,
-
         totalOrderedQuantity: summary.totalOrderedQuantity,
-
         totalReceivedQuantity: 0,
-
         subtotal: summary.subtotal,
-
         discountAmount: summary.discountAmount,
-
         taxAmount: summary.taxAmount,
-
         shippingAmount: summary.shippingAmount,
-
         grandTotal: summary.grandTotal,
-
         hasReceivingHistory: false,
-
         goodsReceiptCount: 0,
-
         notes: preparedData.notes,
-
         revision: 1,
-
         createdBy: currentUser.userId,
-
         createdAt: serverTimestamp(),
-
         updatedBy: currentUser.userId,
-
         updatedAt: serverTimestamp(),
       });
 
@@ -862,42 +853,26 @@ export async function createPurchaseOrderDraft(purchaseOrderData) {
 
         transaction.set(itemReference, {
           purchaseOrderId: purchaseOrderReference.id,
-
           poNumber,
-
           poStatus: PURCHASE_ORDER_STATUSES.DRAFT,
-
           ...item,
-
           createdBy: currentUser.userId,
-
           createdAt: serverTimestamp(),
-
           updatedBy: currentUser.userId,
-
           updatedAt: serverTimestamp(),
         });
       }
 
       result = {
         id: purchaseOrderReference.id,
-
         poNumber,
-
         poSequence: nextSequence,
-
         status: PURCHASE_ORDER_STATUSES.DRAFT,
-
         supplierId: preparedData.supplierId,
-
         supplierName: supplierSnapshotData.supplierName,
-
         orderDate: preparedData.orderDate,
-
         expectedDeliveryDate: preparedData.expectedDeliveryDate,
-
         ...summary,
-
         items: itemSnapshots,
       };
     });

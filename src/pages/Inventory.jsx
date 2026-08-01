@@ -13,7 +13,6 @@ import { PRODUCT_STATUSES } from "../constants/products";
 import { subscribeToActiveUnits } from "../services/unitService";
 
 import {
-  adjustProductStock,
   assignProductUnit,
   deleteProduct,
   subscribeToProducts,
@@ -315,65 +314,36 @@ function Inventory({ currentUserRole }) {
     navigate(`/stock-in?productId=${encodeURIComponent(product.id)}`);
   }
 
-  async function handleStockAdjustment(productId, movementType) {
+  function handleOpenStockOut(product) {
     if (!canAdjustStock) {
-      setFirebaseError(
-        "Your role is not allowed to change inventory quantities.",
-      );
+      setFirebaseError("Your role is not allowed to release inventory stock.");
 
       return;
     }
 
-    const product = products.find(
-      (currentProduct) => currentProduct.id === productId,
-    );
-
-    if (!product) {
-      return;
-    }
-
-    const movementLabel = movementType === "IN" ? "stock in" : "stock out";
-
-    const input = window.prompt(
-      `Enter the quantity to ${movementLabel} for ${product.name}:`,
-    );
-
-    if (input === null) {
-      return;
-    }
-
-    const amount = Number(input);
-
-    if (!Number.isInteger(amount) || amount <= 0) {
-      window.alert("Please enter a positive whole number.");
+    if (!product?.id) {
+      setFirebaseError("The selected product could not be found.");
 
       return;
     }
 
-    if (movementType === "OUT" && amount > Number(product.quantity ?? 0)) {
-      window.alert(
-        `Insufficient stock. Only ${product.quantity} item(s) are available.`,
-      );
+    const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
+
+    if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
+      setFirebaseError(`${product.name} is inactive and cannot release stock.`);
 
       return;
     }
 
-    try {
-      setBusyProductId(productId);
+    if (Number(product.quantity ?? 0) <= 0) {
+      setFirebaseError(`${product.name} does not have available stock.`);
 
-      setFirebaseError("");
-
-      await adjustProductStock(productId, movementType, amount);
-    } catch (error) {
-      console.error("Unable to adjust stock:", error);
-
-      const message = error?.message || "Unable to update the product stock.";
-
-      setFirebaseError(message);
-      window.alert(message);
-    } finally {
-      setBusyProductId(null);
+      return;
     }
+
+    setFirebaseError("");
+
+    navigate(`/stock-out?productId=${encodeURIComponent(product.id)}`);
   }
 
   function clearFilters() {
@@ -647,11 +617,20 @@ function Inventory({ currentUserRole }) {
                             <button
                               type="button"
                               className="stock-out-button"
-                              onClick={() =>
-                                handleStockAdjustment(product.id, "OUT")
-                              }
+                              onClick={() => handleOpenStockOut(product)}
                               disabled={
-                                isBusy || Number(product.quantity ?? 0) === 0
+                                isBusy ||
+                                Number(product.quantity ?? 0) === 0 ||
+                                (product.status ?? PRODUCT_STATUSES.ACTIVE) !==
+                                  PRODUCT_STATUSES.ACTIVE
+                              }
+                              title={
+                                (product.status ?? PRODUCT_STATUSES.ACTIVE) !==
+                                PRODUCT_STATUSES.ACTIVE
+                                  ? "Inactive products cannot release stock"
+                                  : Number(product.quantity ?? 0) === 0
+                                    ? "This product is out of stock"
+                                    : `Release stock for ${product.name}`
                               }
                             >
                               Stock Out

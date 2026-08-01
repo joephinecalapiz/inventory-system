@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useSearchParams } from "react-router-dom";
+
 import "../styles/StockOut.css";
 
 import StockOutHistory from "../components/StockOutHistory";
@@ -66,6 +68,10 @@ function getReasonLabel(reason) {
 }
 
 function StockOut({ currentUserRole }) {
+  const [searchParams] = useSearchParams();
+
+  const requestedProductId = String(searchParams.get("productId") ?? "").trim();
+
   const canCreateStockOut = [
     USER_ROLES.SUPERADMIN,
     USER_ROLES.ADMIN,
@@ -78,7 +84,9 @@ function StockOut({ currentUserRole }) {
 
   const [products, setProducts] = useState([]);
 
-  const [form, setForm] = useState(() => createEmptyStockOutForm());
+  const [form, setForm] = useState(() =>
+    createEmptyStockOutForm(requestedProductId),
+  );
 
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -147,7 +155,7 @@ function StockOut({ currentUserRole }) {
   );
 
   useEffect(() => {
-    if (!form.productId || selectedProduct) {
+    if (isLoading || !form.productId || selectedProduct) {
       return;
     }
 
@@ -157,7 +165,7 @@ function StockOut({ currentUserRole }) {
       type: "error",
       text: "The selected Product is no longer active or available.",
     });
-  }, [form.productId, selectedProduct]);
+  }, [form.productId, selectedProduct, isLoading]);
 
   const productsWithStock = useMemo(
     () => products.filter((product) => getProductQuantity(product) > 0),

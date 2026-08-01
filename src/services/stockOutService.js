@@ -3,9 +3,9 @@ import {
   doc,
   getDoc,
   onSnapshot,
-  runTransaction,
   serverTimestamp,
   Timestamp,
+  writeBatch,
 } from "firebase/firestore";
 
 import { auth, db } from "../firebase/firebase";
@@ -383,277 +383,234 @@ export async function createStockOutReceipt(stockOutData) {
     preparedData.operationId,
   );
 
-  let result = null;
-
   try {
-    await runTransaction(db, async (transaction) => {
-      /*
-       * Idempotency is checked before Product
-       * stock is read or changed.
-       */
-      const operationSnapshot = await transaction.get(operationReference);
+    /*
+     * Keep the read operations outside the atomic
+     * write request. This prevents the browser
+     * workflow from exhausting the Firestore Rules
+     * expression budget.
+     */
+    const operationSnapshot = await getDoc(operationReference);
 
-      if (operationSnapshot.exists()) {
-        const existingOperation = operationSnapshot.data();
-
-        if (
-          !isSameStockOutRequest(existingOperation, preparedData, currentUser)
-        ) {
-          throw new Error(
-            "This Stock-Out operation ID is already linked to another release.",
-          );
-        }
-
-        if (
-          existingOperation.status !== STOCK_OUT_OPERATION_STATUSES.COMPLETED ||
-          existingOperation.movementId !== preparedData.operationId
-        ) {
-          throw new Error(
-            "The existing Stock-Out operation is incomplete or inconsistent.",
-          );
-        }
-
-        result = getExistingOperationResult(existingOperation);
-
-        return;
-      }
-
-      const productSnapshot = await transaction.get(productReference);
-
-      if (!productSnapshot.exists()) {
-        throw new Error("The selected product no longer exists.");
-      }
-
-      const product = productSnapshot.data();
-
-      const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
-
-      if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
-        throw new Error("Inactive products cannot be released from inventory.");
-      }
-
-      const previousQuantity = Number(product.quantity ?? 0);
-
-      if (!Number.isInteger(previousQuantity) || previousQuantity < 0) {
-        throw new Error(
-          "The selected product contains an invalid current stock quantity.",
-        );
-      }
-
-      const newQuantity = calculateStockOutBalance(
-        previousQuantity,
-        preparedData.quantityReleased,
-      );
-
-      if (newQuantity === null) {
-        throw new Error(
-          `Insufficient stock. Only ${previousQuantity} item(s) are available.`,
-        );
-      }
-
-      const storedMovementCount = Number(product.stockMovementCount ?? 0);
-
-      const previousMovementCount =
-        Number.isInteger(storedMovementCount) && storedMovementCount >= 0
-          ? storedMovementCount
-          : 0;
-
-      const productName = normalizeStockOutText(product.name);
-
-      const productSku = String(product.sku ?? "")
-        .trim()
-        .toUpperCase();
-
-      if (!productName) {
-        throw new Error("The selected product does not have a valid name.");
-      }
-
-      if (!productSku) {
-        throw new Error("The selected product does not have a valid SKU.");
-      }
-
-      const unitCost = resolveProductCostPrice(product);
-
-      const totalCost = calculateStockOutTotalCost(
-        preparedData.quantityReleased,
-        unitCost,
-      );
-
-      const rawTotalCost = preparedData.quantityReleased * unitCost;
+    if (operationSnapshot.exists()) {
+      const existingOperation = operationSnapshot.data();
 
       if (
-        !Number.isFinite(rawTotalCost) ||
-        rawTotalCost > STOCK_OUT_LIMITS.MAX_TOTAL_VALUE
+        !isSameStockOutRequest(existingOperation, preparedData, currentUser)
       ) {
         throw new Error(
-          "The total Stock-Out value exceeds the allowed maximum.",
+          "This Stock-Out operation ID is already linked to another release.",
         );
       }
 
-      const movementData = {
-        movementId: movementReference.id,
-
-        operationId: preparedData.operationId,
-
-        movementType: STOCK_OUT_MOVEMENT_TYPE,
-
-        reason: preparedData.reason,
-
-        productId: preparedData.productId,
-
-        productName,
-
-        productSku,
-
-        quantity: preparedData.quantityReleased,
-
-        previousQuantity,
-
-        newQuantity,
-
-        unitCost,
-
-        totalCost,
-
-        destination: preparedData.destination,
-
-        referenceNumber: preparedData.referenceNumber,
-
-        dateReleased: preparedData.dateReleased,
-
-        releasedBy: currentUser.userId,
-
-        releasedByName: currentUser.displayName,
-
-        createdBy: currentUser.userId,
-
-        createdAt: serverTimestamp(),
-      };
-
-      addOptionalProductSnapshots(movementData, product);
-
-      if (preparedData.remarks) {
-        movementData.remarks = preparedData.remarks;
+      if (
+        existingOperation.status !== STOCK_OUT_OPERATION_STATUSES.COMPLETED ||
+        existingOperation.movementId !== preparedData.operationId
+      ) {
+        throw new Error(
+          "The existing Stock-Out operation is incomplete or inconsistent.",
+        );
       }
 
-      const operationData = {
-        operationId: preparedData.operationId,
+      return getExistingOperationResult(existingOperation);
+    }
 
-        status: STOCK_OUT_OPERATION_STATUSES.COMPLETED,
+    const productSnapshot = await getDoc(productReference);
 
-        movementId: movementReference.id,
+    if (!productSnapshot.exists()) {
+      throw new Error("The selected product no longer exists.");
+    }
 
-        productId: preparedData.productId,
+    const product = productSnapshot.data();
 
-        productName,
+    const productStatus = product.status ?? PRODUCT_STATUSES.ACTIVE;
 
-        productSku,
+    if (productStatus !== PRODUCT_STATUSES.ACTIVE) {
+      throw new Error("Inactive products cannot be released from inventory.");
+    }
 
-        quantityReleased: preparedData.quantityReleased,
+    const previousQuantity = Number(product.quantity ?? 0);
 
-        previousQuantity,
+    if (!Number.isInteger(previousQuantity) || previousQuantity < 0) {
+      throw new Error(
+        "The selected product contains an invalid current stock quantity.",
+      );
+    }
 
-        newQuantity,
+    const newQuantity = calculateStockOutBalance(
+      previousQuantity,
+      preparedData.quantityReleased,
+    );
 
-        unitCost,
+    if (newQuantity === null) {
+      throw new Error(
+        `Insufficient stock. Only ${previousQuantity} item(s) are available.`,
+      );
+    }
 
-        totalCost,
+    const storedMovementCount = Number(product.stockMovementCount ?? 0);
 
-        destination: preparedData.destination,
+    const previousMovementCount =
+      Number.isInteger(storedMovementCount) && storedMovementCount >= 0
+        ? storedMovementCount
+        : 0;
 
-        referenceNumber: preparedData.referenceNumber,
+    const productName = normalizeStockOutText(product.name);
 
-        dateReleased: preparedData.dateReleased,
+    const productSku = String(product.sku ?? "")
+      .trim()
+      .toUpperCase();
 
-        dateReleasedKey: preparedData.dateReleasedKey,
+    if (!productName) {
+      throw new Error("The selected product does not have a valid name.");
+    }
 
-        reason: preparedData.reason,
+    if (!productSku) {
+      throw new Error("The selected product does not have a valid SKU.");
+    }
 
-        remarks: preparedData.remarks,
+    const unitCost = resolveProductCostPrice(product);
 
-        releasedBy: currentUser.userId,
+    const totalCost = calculateStockOutTotalCost(
+      preparedData.quantityReleased,
+      unitCost,
+    );
 
-        releasedByName: currentUser.displayName,
+    const rawTotalCost = preparedData.quantityReleased * unitCost;
 
-        createdBy: currentUser.userId,
+    if (
+      !Number.isFinite(rawTotalCost) ||
+      rawTotalCost > STOCK_OUT_LIMITS.MAX_TOTAL_VALUE
+    ) {
+      throw new Error("The total Stock-Out value exceeds the allowed maximum.");
+    }
 
-        createdAt: serverTimestamp(),
-      };
+    const movementData = {
+      movementId: movementReference.id,
+      operationId: preparedData.operationId,
+      movementType: STOCK_OUT_MOVEMENT_TYPE,
+      reason: preparedData.reason,
+      productId: preparedData.productId,
+      productName,
+      productSku,
+      quantity: preparedData.quantityReleased,
+      previousQuantity,
+      newQuantity,
+      unitCost,
+      totalCost,
+      destination: preparedData.destination,
+      referenceNumber: preparedData.referenceNumber,
+      dateReleased: preparedData.dateReleased,
+      releasedBy: currentUser.userId,
+      releasedByName: currentUser.displayName,
+      createdBy: currentUser.userId,
+      createdAt: serverTimestamp(),
+    };
 
-      /*
-       * All transaction reads are complete.
-       * The writes below commit together or not
-       * at all.
-       */
-      transaction.update(productReference, {
-        quantity: newQuantity,
+    addOptionalProductSnapshots(movementData, product);
 
-        hasStockHistory: true,
+    if (preparedData.remarks) {
+      movementData.remarks = preparedData.remarks;
+    }
 
-        stockMovementCount: previousMovementCount + 1,
+    const operationData = {
+      operationId: preparedData.operationId,
+      status: STOCK_OUT_OPERATION_STATUSES.COMPLETED,
+      movementId: movementReference.id,
+      productId: preparedData.productId,
+      productName,
+      productSku,
+      quantityReleased: preparedData.quantityReleased,
+      previousQuantity,
+      newQuantity,
+      unitCost,
+      totalCost,
+      destination: preparedData.destination,
+      referenceNumber: preparedData.referenceNumber,
+      dateReleased: preparedData.dateReleased,
+      dateReleasedKey: preparedData.dateReleasedKey,
+      reason: preparedData.reason,
+      remarks: preparedData.remarks,
+      releasedBy: currentUser.userId,
+      releasedByName: currentUser.displayName,
+      createdBy: currentUser.userId,
+      createdAt: serverTimestamp(),
+    };
 
-        lastStockMovementId: movementReference.id,
+    /*
+     * Product, movement, and operation still commit
+     * atomically. Firestore Rules compare the Product's
+     * current stock with previousQuantity/newQuantity,
+     * so a concurrent stock change causes this batch to
+     * fail instead of overwriting newer inventory.
+     */
+    const batch = writeBatch(db);
 
-        lastStockMovementType: STOCK_OUT_MOVEMENT_TYPE,
-
-        lastStockMovementReason: preparedData.reason,
-
-        lastStockMovementQuantity: preparedData.quantityReleased,
-
-        lastStockMovementUnitCost: unitCost,
-
-        lastStockMovementAt: serverTimestamp(),
-
-        updatedBy: currentUser.userId,
-
-        updatedAt: serverTimestamp(),
-      });
-
-      transaction.set(movementReference, movementData);
-
-      transaction.set(operationReference, operationData);
-
-      result = {
-        operationId: preparedData.operationId,
-
-        movementId: movementReference.id,
-
-        productId: preparedData.productId,
-
-        productName,
-
-        productSku,
-
-        quantityReleased: preparedData.quantityReleased,
-
-        previousQuantity,
-
-        newQuantity,
-
-        unitCost,
-
-        totalCost,
-
-        destination: preparedData.destination,
-
-        referenceNumber: preparedData.referenceNumber,
-
-        dateReleased: preparedData.dateReleasedKey,
-
-        reason: preparedData.reason,
-
-        remarks: preparedData.remarks,
-
-        releasedBy: currentUser.userId,
-
-        releasedByName: currentUser.displayName,
-
-        isReplay: false,
-      };
+    batch.update(productReference, {
+      quantity: newQuantity,
+      hasStockHistory: true,
+      stockMovementCount: previousMovementCount + 1,
+      lastStockMovementId: movementReference.id,
+      lastStockMovementType: STOCK_OUT_MOVEMENT_TYPE,
+      lastStockMovementReason: preparedData.reason,
+      lastStockMovementQuantity: preparedData.quantityReleased,
+      lastStockMovementUnitCost: unitCost,
+      lastStockMovementAt: serverTimestamp(),
+      updatedBy: currentUser.userId,
+      updatedAt: serverTimestamp(),
     });
 
-    return result;
+    batch.set(movementReference, movementData);
+
+    batch.set(operationReference, operationData);
+
+    await batch.commit();
+
+    return {
+      operationId: preparedData.operationId,
+      movementId: movementReference.id,
+      productId: preparedData.productId,
+      productName,
+      productSku,
+      quantityReleased: preparedData.quantityReleased,
+      previousQuantity,
+      newQuantity,
+      unitCost,
+      totalCost,
+      destination: preparedData.destination,
+      referenceNumber: preparedData.referenceNumber,
+      dateReleased: preparedData.dateReleasedKey,
+      reason: preparedData.reason,
+      remarks: preparedData.remarks,
+      releasedBy: currentUser.userId,
+      releasedByName: currentUser.displayName,
+      isReplay: false,
+    };
   } catch (error) {
+    /*
+     * A repeated click may finish in another client
+     * between the first operation read and batch commit.
+     * Return the stored completed operation only when it
+     * is an exact replay of this request.
+     */
+    try {
+      const replaySnapshot = await getDoc(operationReference);
+
+      if (replaySnapshot.exists()) {
+        const existingOperation = replaySnapshot.data();
+
+        if (
+          isSameStockOutRequest(existingOperation, preparedData, currentUser) &&
+          existingOperation.status === STOCK_OUT_OPERATION_STATUSES.COMPLETED &&
+          existingOperation.movementId === preparedData.operationId
+        ) {
+          return getExistingOperationResult(existingOperation);
+        }
+      }
+    } catch (replayError) {
+      console.error("Unable to verify Stock-Out replay:", replayError);
+    }
+
     console.error("Unable to create Stock-Out receipt:", error);
 
     throw error;

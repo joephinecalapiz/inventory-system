@@ -1,0 +1,21 @@
+{
+  "fix": "Removed orphan duplicate Stock-Out Rules block",
+  "source": "user-uploaded firestore(17).rules",
+  "removed_original_lines": "3510-3668",
+  "balanced_delimiters": true,
+  "stockOutOperations_match_count": 1,
+  "files": {
+    "README_PHASE_6H_FIRESTORE_SYNTAX_FIX.md": {
+      "bytes": 625,
+      "sha256": "4ce06b07770c436abedd4c3d1b6454e483f8764e60c0922e88b197d90e35242e"
+    },
+    "firestore.rules": {
+      "bytes": 156409,
+      "sha256": "f5eb71d6a63e8ba98b07be6e44be3c0677f0a38e42f2f946b30e50209edf9829"
+    },
+    "scripts/run-phase6h-firestore-syntax-check.ps1": {
+      "bytes": 665,
+      "sha256": "0d15fee102cbf66f3ebc6c2a3e457a401d234b0836e91e749f8b8fc97b8a5d5b"
+    }
+  }
+}

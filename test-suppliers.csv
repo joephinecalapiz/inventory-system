@@ -1,0 +1,13 @@
+﻿name,contactPerson,contactNumber,email,address,tin,paymentTerm,customPaymentTerms,notes
+BluePeak Waterworks Trading,Mara Villanueva,+63 917 555 0101,sales@bluepeak-test.example,"Test Warehouse 1, Cagayan de Oro City",000-111-222-001,NET_30,,TEST DATA - water meters and waterworks materials.
+Northline Valve Supply,Paolo Reyes,+63 917 555 0102,orders@northline-test.example,"Test Industrial Park, Iligan City",000-111-222-002,NET_15,,TEST DATA - valves and control accessories.
+Riverstone PE Fittings Depot,Angela Lim,+63 917 555 0103,contact@riverstone-test.example,"Test Road, Davao City",000-111-222-003,CASH_ON_DELIVERY,,TEST DATA - PE and HDPE fittings.
+Golden Harbor GI Products,Carlo Mendoza,+63 917 555 0104,sales@goldenharbor-test.example,"Test Commercial Center, Cebu City",000-111-222-004,NET_45,,"TEST DATA - GI pipes, fittings, and flanges."
+PrimeFlow Pumps and Motors,Liza Torres,+63 917 555 0105,service@primeflow-test.example,"Test Equipment District, General Santos City",000-111-222-005,NET_30,,"TEST DATA - pumps, motors, and spare parts."
+MetroLube Industrial Supplies,Nico Santos,+63 917 555 0106,orders@metrolube-test.example,"Test Avenue, Quezon City",000-111-222-006,PREPAID,,"TEST DATA - oils, lubricants, and consumables."
+ClearSource Water Quality Systems,Janelle Cruz,+63 917 555 0107,info@clearsource-test.example,"Test Technology Hub, Tagum City",000-111-222-007,NET_60,,TEST DATA - water quality and testing equipment.
+IronBridge Fabricated Fittings,Ramon Dela Peña,+63 917 555 0108,fabrication@ironbridge-test.example,"Test Fabrication Zone, Cagayan de Oro City",000-111-222-008,CUSTOM,"50 percent deposit, balance before delivery",TEST DATA - fabricated fittings and custom metal works.
+EastBay Consumables Center,Faith Navarro,+63 917 555 0109,sales@eastbay-test.example,"Test Supply Center, Butuan City",000-111-222-009,NET_7,,TEST DATA - general consumables and small tools.
+AquaGrid Metering Solutions,Miguel Ramos,+63 917 555 0110,metering@aquagrid-test.example,"Test Business Park, Valencia City",000-111-222-010,NET_30,,TEST DATA - water meters and metering accessories.
+Crestline Parts Distribution,Bea Castillo,+63 917 555 0111,parts@crestline-test.example,"Test Distribution Compound, Malaybalay City",000-111-222-011,CASH_ON_DELIVERY,,TEST DATA - replacement parts and maintenance supplies.
+Summit Pipe and Flange Supply,Daniel Flores,+63 917 555 0112,orders@summitpipe-test.example,"Test Logistics Estate, Ozamiz City",000-111-222-012,NET_15,,"TEST DATA - pipes, flanges, and installation materials."

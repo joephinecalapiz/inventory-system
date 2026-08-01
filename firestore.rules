@@ -832,65 +832,31 @@ function stockOutProductMatchesMovementAndOperation(
   let operationId =
     request.resource.data.lastStockMovementId;
 
-  let movement = getAfter(
-    /databases/$(database)/documents/stockMovements/$(operationId)
-  ).data;
-
   let operation = getAfter(
     /databases/$(database)/documents/stockOutOperations/$(operationId)
   ).data;
 
-  return movement.movementId == operationId
-    && movement.operationId == operationId
-    && movement.movementType == "OUT"
-    && movement.reason
-      == request.resource.data.lastStockMovementReason
-    && movement.productId == productId
-    && movement.productName == resource.data.name
-    && movement.productSku == resource.data.sku
-    && movement.quantity
-      == request.resource.data.lastStockMovementQuantity
-    && movement.previousQuantity
-      == resource.data.quantity
-    && movement.newQuantity
-      == request.resource.data.quantity
-    && movement.unitCost
-      == request.resource.data.lastStockMovementUnitCost
-    && movement.totalCost
-      >= movement.quantity * movement.unitCost - 0.01
-    && movement.totalCost
-      <= movement.quantity * movement.unitCost + 0.01
-    && movement.releasedBy == request.auth.uid
-    && movement.createdBy == request.auth.uid
-    && movement.createdAt == request.time
-    && operation.operationId == operationId
+  return operation.operationId == operationId
     && operation.status == "COMPLETED"
     && operation.movementId == operationId
     && operation.productId == productId
-    && operation.productName == movement.productName
-    && operation.productSku == movement.productSku
-    && operation.quantityReleased == movement.quantity
+    && operation.productName == resource.data.name
+    && operation.productSku == resource.data.sku
+    && operation.quantityReleased
+      == request.resource.data.lastStockMovementQuantity
     && operation.previousQuantity
-      == movement.previousQuantity
-    && operation.newQuantity == movement.newQuantity
-    && operation.unitCost == movement.unitCost
-    && operation.totalCost == movement.totalCost
-    && operation.destination == movement.destination
-    && operation.referenceNumber
-      == movement.referenceNumber
-    && operation.dateReleased == movement.dateReleased
-    && operation.reason == movement.reason
-    && operation.remarks
-      == movement.get(
-        "remarks",
-        ""
-      )
+      == resource.data.quantity
+    && operation.newQuantity
+      == request.resource.data.quantity
+    && operation.unitCost
+      == request.resource.data.lastStockMovementUnitCost
+    && operation.reason
+      == request.resource.data.lastStockMovementReason
     && operation.releasedBy == request.auth.uid
-    && operation.releasedByName
-      == movement.releasedByName
     && operation.createdBy == request.auth.uid
     && operation.createdAt == request.time;
 }
+
 
 
 /*
@@ -2200,6 +2166,146 @@ function isValidStockAdjustmentDecisionOperation(
     );
 }
 
+/*
+ * PRODUCT STOCK-WRITE ROUTING
+ *
+ * These small helpers keep valid Stock In, Stock Out,
+ * Purchase Receipt, and Stock Adjustment transactions
+ * below Firestore's Rules expression limit.
+ */
+
+function isManualStockInReason(value) {
+  return value in [
+    "MANUAL_STOCK_IN",
+    "RETURNED_STOCK",
+    "OPENING_BALANCE",
+    "OTHER"
+  ];
+}
+
+function isProductStockMutation() {
+  return request.resource.data
+    .diff(resource.data)
+    .affectedKeys()
+    .hasAny([
+      "quantity",
+      "costPrice",
+      "hasStockHistory",
+      "stockMovementCount",
+      "lastStockMovementId",
+      "lastStockMovementType",
+      "lastStockMovementReason",
+      "lastStockMovementQuantity",
+      "lastStockMovementUnitCost",
+      "lastStockMovementAt",
+      "lastStockMovementBy"
+    ]);
+}
+
+function isValidManualStockInProductUpdate(
+  productId
+) {
+  return hasValidProductStockAuditUpdate()
+    && isValidProductStockIncreaseBase()
+    && request.resource.data.lastStockMovementType
+      == "IN"
+    && isManualStockInReason(
+      request.resource.data.lastStockMovementReason
+    )
+    && manualStockInProductMatchesMovementAndOperation(
+      productId
+    );
+}
+
+function isValidPurchaseReceiptProductUpdate() {
+  return hasValidProductStockAuditUpdate()
+    && isValidProductStockIncreaseBase()
+    && request.resource.data.lastStockMovementType
+      == "IN"
+    && request.resource.data.lastStockMovementReason
+      == "PURCHASE_RECEIPT";
+}
+
+function isValidManualStockOutProductUpdate(
+  productId
+) {
+  return resource.data.get(
+      "status",
+      "ACTIVE"
+    ) == "ACTIVE"
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "quantity",
+        "hasStockHistory",
+        "stockMovementCount",
+        "lastStockMovementId",
+        "lastStockMovementType",
+        "lastStockMovementReason",
+        "lastStockMovementQuantity",
+        "lastStockMovementUnitCost",
+        "lastStockMovementAt",
+        "lastStockMovementBy",
+        "updatedBy",
+        "updatedAt"
+      ])
+    && request.resource.data.quantity is int
+    && request.resource.data.quantity >= 0
+    && request.resource.data.quantity
+      == resource.data.quantity
+        - request.resource.data.lastStockMovementQuantity
+    && request.resource.data.hasStockHistory == true
+    && request.resource.data.stockMovementCount is int
+    && request.resource.data.stockMovementCount
+      == resource.data.get(
+        "stockMovementCount",
+        0
+      ) + 1
+    && isValidStockOutOperationId(
+      request.resource.data.lastStockMovementId
+    )
+    && request.resource.data.lastStockMovementType
+      == "OUT"
+    && isValidStockOutReason(
+      request.resource.data.lastStockMovementReason
+    )
+    && request.resource.data.lastStockMovementQuantity
+      is int
+    && request.resource.data.lastStockMovementQuantity
+      >= 1
+    && request.resource.data.lastStockMovementUnitCost
+      is number
+    && request.resource.data.lastStockMovementUnitCost
+      >= 0
+    && request.resource.data.lastStockMovementUnitCost
+      == resource.data.get(
+        "costPrice",
+        0
+      )
+    && request.resource.data.get(
+      "costPrice",
+      0
+    ) == resource.data.get(
+      "costPrice",
+      0
+    )
+    && request.resource.data.lastStockMovementAt
+      == request.time
+    && request.resource.data.get(
+      "lastStockMovementBy",
+      request.auth.uid
+    ) == request.auth.uid
+    && request.resource.data.updatedBy
+      == request.auth.uid
+    && request.resource.data.updatedAt
+      == request.time
+    && stockOutProductMatchesMovementAndOperation(
+      productId
+    );
+}
+
+
 function isValidProductStockUpdate(
   productId
 ) {
@@ -2295,6 +2401,13 @@ match /products/{productId} {
    * validator and keeps evaluation below the
    * Firestore 1000-expression limit.
    */
+  /*
+   * Route stock mutations by movement type and reason.
+   *
+   * Master-data updates never evaluate the large stock
+   * validators, while valid stock writes evaluate only
+   * their own validator.
+   */
   allow update: if canManageProducts()
     && (
       (
@@ -2309,9 +2422,44 @@ match /products/{productId} {
       ||
       (
         request.resource.data.get(
+          "lastStockMovementType",
+          ""
+        ) == "OUT"
+        && isValidManualStockOutProductUpdate(
+          productId
+        )
+      )
+      ||
+      (
+        request.resource.data.get(
+          "lastStockMovementType",
+          ""
+        ) == "IN"
+        && request.resource.data.get(
           "lastStockMovementReason",
           ""
-        ) != "STOCK_ADJUSTMENT"
+        ) == "PURCHASE_RECEIPT"
+        && isValidPurchaseReceiptProductUpdate()
+      )
+      ||
+      (
+        request.resource.data.get(
+          "lastStockMovementType",
+          ""
+        ) == "IN"
+        && isManualStockInReason(
+          request.resource.data.get(
+            "lastStockMovementReason",
+            ""
+          )
+        )
+        && isValidManualStockInProductUpdate(
+          productId
+        )
+      )
+      ||
+      (
+        !isProductStockMutation()
         && (
           isValidProductMasterUpdate()
           || isValidProductUnitAssignment()
@@ -2319,9 +2467,6 @@ match /products/{productId} {
             productId
           )
           || isValidProductMigrationUpdate()
-          || isValidProductStockUpdate(
-            productId
-          )
         )
       )
     );
@@ -2862,14 +3007,12 @@ function stockOutOperationMatchesMovement(
     && operation.productName == data.productName
     && operation.productSku == data.productSku
     && operation.quantityReleased == data.quantity
-    && operation.previousQuantity
-      == data.previousQuantity
+    && operation.previousQuantity == data.previousQuantity
     && operation.newQuantity == data.newQuantity
     && operation.unitCost == data.unitCost
     && operation.totalCost == data.totalCost
     && operation.destination == data.destination
-    && operation.referenceNumber
-      == data.referenceNumber
+    && operation.referenceNumber == data.referenceNumber
     && operation.dateReleased == data.dateReleased
     && operation.reason == data.reason
     && operation.remarks
@@ -2878,13 +3021,16 @@ function stockOutOperationMatchesMovement(
         ""
       )
     && operation.releasedBy == request.auth.uid
-    && operation.releasedByName
-      == data.releasedByName
+    && operation.releasedByName == data.releasedByName
     && operation.createdBy == request.auth.uid
     && operation.createdAt == request.time;
 }
 
-function isValidManualStockOutMovement(data, movementId) {
+
+function isValidManualStockOutMovement(
+  data,
+  movementId
+) {
   return data.keys().hasOnly([
       "movementId",
       "operationId",
@@ -2913,27 +3059,6 @@ function isValidManualStockOutMovement(data, movementId) {
       "unitAbbreviation",
       "remarks"
     ])
-    && data.keys().hasAll([
-      "movementId",
-      "operationId",
-      "movementType",
-      "reason",
-      "productId",
-      "productName",
-      "productSku",
-      "quantity",
-      "previousQuantity",
-      "newQuantity",
-      "unitCost",
-      "totalCost",
-      "destination",
-      "referenceNumber",
-      "dateReleased",
-      "releasedBy",
-      "releasedByName",
-      "createdBy",
-      "createdAt"
-    ])
     && data.movementId == movementId
     && data.operationId == movementId
     && isValidStockOutOperationId(
@@ -2954,18 +3079,13 @@ function isValidManualStockOutMovement(data, movementId) {
     && data.productSku.size() <= 50
     && data.quantity is int
     && data.quantity >= 1
-    && data.quantity <= 999999999
     && data.previousQuantity is int
     && data.previousQuantity >= data.quantity
     && data.newQuantity
       == data.previousQuantity - data.quantity
-    && data.newQuantity >= 0
     && data.unitCost is number
     && data.unitCost >= 0
-    && data.unitCost <= 999999999
     && data.totalCost is number
-    && data.totalCost >= 0
-    && data.totalCost <= 999999999999.99
     && data.totalCost
       >= data.quantity * data.unitCost - 0.01
     && data.totalCost
@@ -2984,12 +3104,12 @@ function isValidManualStockOutMovement(data, movementId) {
     && data.releasedByName.size() <= 150
     && data.createdBy == request.auth.uid
     && data.createdAt == request.time
-    && hasValidStockMovementSnapshots(data)
     && stockOutOperationMatchesMovement(
       data,
       movementId
     );
 }
+
 
 match /stockMovements/{movementId} {
   allow get, list: if hasRole([
@@ -3002,6 +3122,9 @@ match /stockMovements/{movementId} {
   /*
    * Route by movement reason before evaluating
    * the large movement validators.
+   */
+  /*
+   * Route each movement to exactly one large validator.
    */
   allow create: if hasRole([
       "SUPERADMIN",
@@ -3022,22 +3145,50 @@ match /stockMovements/{movementId} {
       ||
       (
         request.resource.data.get(
+          "movementType",
+          ""
+        ) == "OUT"
+        && isValidStockOutReason(
+          request.resource.data.get(
+            "reason",
+            ""
+          )
+        )
+        && isValidManualStockOutMovement(
+          request.resource.data,
+          movementId
+        )
+      )
+      ||
+      (
+        request.resource.data.get(
+          "movementType",
+          ""
+        ) == "IN"
+        && request.resource.data.get(
           "reason",
           ""
-        ) != "STOCK_ADJUSTMENT"
-        && (
-          isValidManualStockInMovement(
-            request.resource.data,
-            movementId
+        ) == "PURCHASE_RECEIPT"
+        && isValidPurchaseReceiptMovement(
+          request.resource.data,
+          movementId
+        )
+      )
+      ||
+      (
+        request.resource.data.get(
+          "movementType",
+          ""
+        ) == "IN"
+        && isManualStockInReason(
+          request.resource.data.get(
+            "reason",
+            ""
           )
-          || isValidPurchaseReceiptMovement(
-            request.resource.data,
-            movementId
-          )
-          || isValidManualStockOutMovement(
-            request.resource.data,
-            movementId
-          )
+        )
+        && isValidManualStockInMovement(
+          request.resource.data,
+          movementId
         )
       )
     );
@@ -3202,6 +3353,10 @@ function stockOutMovementMatchesOperation(
     /databases/$(database)/documents/stockMovements/$(operationId)
   ).data;
 
+  let product = getAfter(
+    /databases/$(database)/documents/products/$(data.productId)
+  ).data;
+
   return movement.movementId == operationId
     && movement.operationId == operationId
     && movement.movementType == "OUT"
@@ -3209,14 +3364,12 @@ function stockOutMovementMatchesOperation(
     && movement.productName == data.productName
     && movement.productSku == data.productSku
     && movement.quantity == data.quantityReleased
-    && movement.previousQuantity
-      == data.previousQuantity
+    && movement.previousQuantity == data.previousQuantity
     && movement.newQuantity == data.newQuantity
     && movement.unitCost == data.unitCost
     && movement.totalCost == data.totalCost
     && movement.destination == data.destination
-    && movement.referenceNumber
-      == data.referenceNumber
+    && movement.referenceNumber == data.referenceNumber
     && movement.dateReleased == data.dateReleased
     && movement.reason == data.reason
     && movement.get(
@@ -3224,10 +3377,113 @@ function stockOutMovementMatchesOperation(
       ""
     ) == data.remarks
     && movement.releasedBy == request.auth.uid
-    && movement.releasedByName
-      == data.releasedByName
+    && movement.releasedByName == data.releasedByName
     && movement.createdBy == request.auth.uid
-    && movement.createdAt == request.time;
+    && movement.createdAt == request.time
+    && product.get(
+      "status",
+      "ACTIVE"
+    ) == "ACTIVE"
+    && product.quantity == data.newQuantity
+    && product.name == data.productName
+    && product.sku == data.productSku
+    && product.get(
+      "costPrice",
+      0
+    ) == data.unitCost
+    && product.lastStockMovementId == operationId
+    && product.lastStockMovementType == "OUT"
+    && product.lastStockMovementReason == data.reason
+    && product.lastStockMovementQuantity
+      == data.quantityReleased
+    && product.lastStockMovementUnitCost == data.unitCost
+    && product.updatedBy == request.auth.uid
+    && product.updatedAt == request.time;
+}
+
+
+function isValidStockOutOperationCreate(
+  data,
+  operationId
+) {
+  return isValidStockOutOperationId(
+      operationId
+    )
+    && data.keys().hasOnly([
+      "operationId",
+      "status",
+      "movementId",
+      "productId",
+      "productName",
+      "productSku",
+      "quantityReleased",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "destination",
+      "referenceNumber",
+      "dateReleased",
+      "dateReleasedKey",
+      "reason",
+      "remarks",
+      "releasedBy",
+      "releasedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.operationId == operationId
+    && data.status == "COMPLETED"
+    && data.movementId == operationId
+    && data.productId is string
+    && data.productId.size() >= 1
+    && data.productId.size() <= 128
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 150
+    && data.productSku is string
+    && data.productSku.size() >= 2
+    && data.productSku.size() <= 50
+    && data.quantityReleased is int
+    && data.quantityReleased >= 1
+    && data.previousQuantity is int
+    && data.previousQuantity >= data.quantityReleased
+    && data.newQuantity
+      == data.previousQuantity - data.quantityReleased
+    && data.unitCost is number
+    && data.unitCost >= 0
+    && data.totalCost is number
+    && data.totalCost
+      >= data.quantityReleased * data.unitCost - 0.01
+    && data.totalCost
+      <= data.quantityReleased * data.unitCost + 0.01
+    && isValidStockOutReason(
+      data.reason
+    )
+    && isValidStockOutDestinationValue(
+      data.destination,
+      data.reason
+    )
+    && data.referenceNumber is string
+    && data.referenceNumber.size() <= 100
+    && data.dateReleased is timestamp
+    && data.dateReleased <= request.time
+    && data.dateReleasedKey is string
+    && data.dateReleasedKey.matches(
+      "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    )
+    && data.remarks is string
+    && data.remarks.size() <= 500
+    && data.releasedBy == request.auth.uid
+    && data.releasedByName is string
+    && data.releasedByName.size() >= 1
+    && data.releasedByName.size() <= 150
+    && data.createdBy == request.auth.uid
+    && data.createdAt == request.time
+    && stockOutMovementMatchesOperation(
+      data,
+      operationId
+    );
 }
 
 match /stockOutOperations/{operationId} {
@@ -3244,145 +3500,7 @@ match /stockOutOperations/{operationId} {
       "ADMIN",
       "INVENTORY_STAFF"
     ])
-    && isValidStockOutOperationId(
-      operationId
-    )
-    && request.resource.data.keys().hasOnly([
-      "operationId",
-      "status",
-      "movementId",
-      "productId",
-      "productName",
-      "productSku",
-      "quantityReleased",
-      "previousQuantity",
-      "newQuantity",
-      "unitCost",
-      "totalCost",
-      "destination",
-      "referenceNumber",
-      "dateReleased",
-      "dateReleasedKey",
-      "reason",
-      "remarks",
-      "releasedBy",
-      "releasedByName",
-      "createdBy",
-      "createdAt"
-    ])
-    && request.resource.data.keys().hasAll([
-      "operationId",
-      "status",
-      "movementId",
-      "productId",
-      "productName",
-      "productSku",
-      "quantityReleased",
-      "previousQuantity",
-      "newQuantity",
-      "unitCost",
-      "totalCost",
-      "destination",
-      "referenceNumber",
-      "dateReleased",
-      "dateReleasedKey",
-      "reason",
-      "remarks",
-      "releasedBy",
-      "releasedByName",
-      "createdBy",
-      "createdAt"
-    ])
-    && request.resource.data.operationId
-      == operationId
-    && request.resource.data.status
-      == "COMPLETED"
-    && request.resource.data.movementId
-      == operationId
-    && request.resource.data.productId
-      is string
-    && request.resource.data.productId.size()
-      >= 1
-    && request.resource.data.productId.size()
-      <= 128
-    && request.resource.data.productName
-      is string
-    && request.resource.data.productName.size()
-      >= 1
-    && request.resource.data.productName.size()
-      <= 150
-    && request.resource.data.productSku
-      is string
-    && request.resource.data.productSku.size()
-      >= 2
-    && request.resource.data.productSku.size()
-      <= 50
-    && request.resource.data.quantityReleased
-      is int
-    && request.resource.data.quantityReleased >= 1
-    && request.resource.data.quantityReleased
-      <= 999999999
-    && request.resource.data.previousQuantity
-      is int
-    && request.resource.data.previousQuantity
-      >= request.resource.data.quantityReleased
-    && request.resource.data.newQuantity
-      == request.resource.data.previousQuantity
-        - request.resource.data.quantityReleased
-    && request.resource.data.newQuantity >= 0
-    && request.resource.data.unitCost
-      is number
-    && request.resource.data.unitCost >= 0
-    && request.resource.data.unitCost
-      <= 999999999
-    && request.resource.data.totalCost
-      is number
-    && request.resource.data.totalCost >= 0
-    && request.resource.data.totalCost
-      <= 999999999999.99
-    && request.resource.data.totalCost
-      >= request.resource.data.quantityReleased
-        * request.resource.data.unitCost - 0.01
-    && request.resource.data.totalCost
-      <= request.resource.data.quantityReleased
-        * request.resource.data.unitCost + 0.01
-    && isValidStockOutReason(
-      request.resource.data.reason
-    )
-    && isValidStockOutDestinationValue(
-      request.resource.data.destination,
-      request.resource.data.reason
-    )
-    && request.resource.data.referenceNumber
-      is string
-    && request.resource.data.referenceNumber.size()
-      <= 100
-    && request.resource.data.dateReleased
-      is timestamp
-    && request.resource.data.dateReleased
-      <= request.time
-    && request.resource.data.dateReleasedKey
-      is string
-    && request.resource.data.dateReleasedKey.matches(
-      "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
-    )
-    && request.resource.data.remarks
-      is string
-    && request.resource.data.remarks.size()
-      <= 500
-    && request.resource.data.releasedBy
-      == request.auth.uid
-    && request.resource.data.releasedByName
-      is string
-    && request.resource.data.releasedByName.size()
-      >= 1
-    && request.resource.data.releasedByName.size()
-      <= 150
-    && request.resource.data.createdBy
-      == request.auth.uid
-    && request.resource.data.createdAt
-      == request.time
-    && stockOutMovementMatchesOperation(
+    && isValidStockOutOperationCreate(
       request.resource.data,
       operationId
     );
