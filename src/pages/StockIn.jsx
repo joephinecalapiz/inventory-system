@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import "../styles/StockIn.css";
 
+import "../styles/ManagementPages.css";
 import { PRODUCT_STATUSES } from "../constants/products";
 
 import { USER_ROLES } from "../constants/roles";
@@ -561,7 +562,7 @@ function StockIn({ currentUserRole }) {
   }
 
   return (
-    <main className="page stock-in-page">
+    <main className="page management-full-width-page stock-in-page">
       <header className="stock-in-page-header">
         <div>
           <p className="section-label">Inventory receiving</p>

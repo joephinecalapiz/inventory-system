@@ -536,3 +536,15 @@
   font-size: 9px;
   letter-spacing: 0.18em;
 }
+
+/* Full-width management page support */
+.app-main,
+.app-page-content {
+  min-width: 0;
+}
+
+.app-page-content {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}

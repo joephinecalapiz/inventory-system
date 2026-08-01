@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import "../styles/Units.css";
 
+import "../styles/ManagementPages.css";
 import {
   UNIT_OPTIONS,
   UNIT_STATUSES,
@@ -485,7 +486,7 @@ function Units({ currentUserRole }) {
   }
 
   return (
-    <main className="page units-page">
+    <main className="page management-full-width-page units-page">
       <header className="units-page-header">
         <div>
           <p className="section-label">Master data</p>

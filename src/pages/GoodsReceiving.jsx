@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import "../styles/GoodsReceiving.css";
 
+
+import "../styles/ManagementPages.css";
 import { USER_ROLES } from "../constants/roles";
 
 import { PURCHASE_ORDER_STATUS_LABELS } from "../constants/purchaseOrders";
@@ -667,7 +669,7 @@ function GoodsReceiving({ currentUserRole }) {
   }
 
   return (
-    <main className="page goods-receiving-page">
+    <main className="page management-full-width-page goods-receiving-page">
       <header className="goods-receiving-page-header">
         <div>
           <p className="section-label">Procurement receiving</p>

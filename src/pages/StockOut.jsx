@@ -4,6 +4,7 @@ import { useSearchParams } from "react-router-dom";
 
 import "../styles/StockOut.css";
 
+import "../styles/ManagementPages.css";
 import StockOutHistory from "../components/StockOutHistory";
 
 import { USER_ROLES } from "../constants/roles";
@@ -457,7 +458,7 @@ function StockOut({ currentUserRole }) {
   }
 
   return (
-    <main className="page stock-out-page">
+    <main className="page management-full-width-page stock-out-page">
       <header className="stock-out-page-header">
         <div>
           <p className="section-label">Inventory release</p>

@@ -1,0 +1,136 @@
+/*
+ * Shared full-width layout for inventory management pages.
+ *
+ * This keeps each page attached to the available main-content edges,
+ * just like the Stock Adjustments page, while table overflow stays
+ * inside the table wrapper instead of scrolling the entire application.
+ */
+
+.page.management-full-width-page {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  padding: 30px 34px 64px;
+  overflow-x: hidden;
+  background: #f7f8f6;
+}
+
+.management-full-width-page,
+.management-full-width-page *,
+.management-full-width-page *::before,
+.management-full-width-page *::after {
+  box-sizing: border-box;
+}
+
+/* Allow every primary section/card to use the full available width. */
+.management-full-width-page > *,
+.management-full-width-page .panel,
+.management-full-width-page .inventory-panel,
+.management-full-width-page .stock-in-form-card,
+.management-full-width-page .stock-in-summary-card,
+.management-full-width-page .stock-out-form-card,
+.management-full-width-page .stock-out-product-list-card,
+.management-full-width-page .supplier-form-card,
+.management-full-width-page .supplier-list-card,
+.management-full-width-page .purchase-order-form-card,
+.management-full-width-page .purchase-order-list-card,
+.management-full-width-page .goods-receiving-form-card,
+.management-full-width-page .goods-receiving-list-card,
+.management-full-width-page .goods-receipt-history-details-card,
+.management-full-width-page .goods-receipt-history-list-card,
+.management-full-width-page .product-master-form-card,
+.management-full-width-page .products-table-card,
+.management-full-width-page .products-migration-panel,
+.management-full-width-page .category-form-card,
+.management-full-width-page .category-table-card,
+.management-full-width-page .unit-form-card,
+.management-full-width-page .unit-table-card {
+  max-width: none;
+  min-width: 0;
+}
+
+.management-full-width-page .panel,
+.management-full-width-page .inventory-panel,
+.management-full-width-page .stock-out-product-list-card,
+.management-full-width-page .supplier-list-card,
+.management-full-width-page .purchase-order-list-card,
+.management-full-width-page .goods-receiving-list-card,
+.management-full-width-page .goods-receipt-history-list-card,
+.management-full-width-page .products-table-card,
+.management-full-width-page .category-table-card,
+.management-full-width-page .unit-table-card {
+  width: 100%;
+  margin-inline: 0;
+}
+
+/* Grid columns may shrink without forcing the whole page wider. */
+.management-full-width-page .content-grid,
+.management-full-width-page .stock-in-layout,
+.management-full-width-page .products-layout,
+.management-full-width-page .categories-layout,
+.management-full-width-page .units-layout,
+.management-full-width-page .supplier-management-layout,
+.management-full-width-page .purchase-order-layout,
+.management-full-width-page .goods-receiving-layout {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+/* Tables remain full-width. Wide tables scroll only inside their wrappers. */
+.management-full-width-page .table-wrapper,
+.management-full-width-page .stock-out-product-table-wrapper,
+.management-full-width-page .supplier-table-wrapper,
+.management-full-width-page .purchase-order-items-wrapper,
+.management-full-width-page .purchase-order-list-wrapper,
+.management-full-width-page .goods-receiving-items-wrapper,
+.management-full-width-page .goods-receiving-list-wrapper,
+.management-full-width-page .goods-receipt-history-items-wrapper,
+.management-full-width-page .goods-receipt-history-list-wrapper,
+.management-full-width-page .products-table-wrapper,
+.management-full-width-page .category-table-wrapper,
+.management-full-width-page .unit-table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-inline: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+}
+
+.management-full-width-page table {
+  width: 100%;
+}
+
+/* Prevent long identifiers and messages from expanding the whole page. */
+.management-full-width-page td,
+.management-full-width-page th,
+.management-full-width-page input,
+.management-full-width-page select,
+.management-full-width-page textarea {
+  min-width: 0;
+}
+
+.management-full-width-page .firebase-error,
+.management-full-width-page [role="alert"] {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .page.management-full-width-page {
+    width: 100%;
+    margin: 0;
+    padding: 22px 16px 48px;
+  }
+}
+
+@media (max-width: 520px) {
+  .page.management-full-width-page {
+    padding: 18px 12px 42px;
+  }
+}

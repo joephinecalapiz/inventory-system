@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import "../styles/Suppliers.css";
 
+import "../styles/ManagementPages.css";
 import { USER_ROLES } from "../constants/roles";
 
 import {
@@ -458,7 +459,7 @@ function Suppliers({ currentUserRole }) {
   }
 
   return (
-    <main className="page suppliers-page">
+    <main className="page management-full-width-page suppliers-page">
       <header className="suppliers-page-header">
         <div>
           <p className="section-label">Procurement master data</p>

@@ -536,100 +536,114 @@ function AddProduct({ currentUserRole }) {
       <header className="add-product-heading">
         <div>
           <p>Product management</p>
-
           <h2>Add Product</h2>
-
           <span>
-            Select a product, category-linked barcode, and active unit of
-            measurement.
+            Create a new inventory record from the approved product master list.
           </span>
+        </div>
+
+        <div className="add-product-heading-status">
+          <span>Master data status</span>
+          <strong>
+            {isLoadingMasterData
+              ? "Loading..."
+              : hasMasterDataError
+                ? "Needs attention"
+                : "Ready"}
+          </strong>
         </div>
       </header>
 
-      <section className="add-product-card">
-        <div className="add-product-card-header">
-          <p>New inventory record</p>
+      <div className="add-product-availability">
+        <article>
+          <span>Available products</span>
+          <strong>{availableProductOptions.length}</strong>
+          <small>Ready to add</small>
+        </article>
 
-          <h3>Product Information</h3>
+        <article>
+          <span>Already added</span>
+          <strong>{alreadyAddedCount}</strong>
+          <small>Existing inventory records</small>
+        </article>
+
+        <article>
+          <span>Inactive category</span>
+          <strong>{inactiveCategoryProductCount}</strong>
+          <small>Hidden from selection</small>
+        </article>
+      </div>
+
+      {categoryLoadError && (
+        <div
+          className="add-product-message add-product-message-error"
+          role="alert"
+        >
+          {categoryLoadError}
         </div>
+      )}
 
-        <div className="add-product-availability">
-          <article>
-            <span>Available</span>
-
-            <strong>{availableProductOptions.length}</strong>
-          </article>
-
-          <article>
-            <span>Already added</span>
-
-            <strong>{alreadyAddedCount}</strong>
-          </article>
-
-          <article>
-            <span>Hidden by inactive category</span>
-
-            <strong>{inactiveCategoryProductCount}</strong>
-          </article>
+      {unitLoadError && (
+        <div
+          className="add-product-message add-product-message-error"
+          role="alert"
+        >
+          {unitLoadError}
         </div>
+      )}
 
-        {categoryLoadError && (
-          <div
-            className="add-product-message add-product-message-error"
-            role="alert"
-          >
-            {categoryLoadError}
+      {productLoadError && (
+        <div
+          className="add-product-message add-product-message-error"
+          role="alert"
+        >
+          {productLoadError}
+        </div>
+      )}
+
+      {message.text && (
+        <div
+          className={`add-product-message add-product-message-${message.type}`}
+          role={message.type === "error" ? "alert" : "status"}
+        >
+          {message.text}
+        </div>
+      )}
+
+      {!isLoadingMasterData &&
+        !hasMasterDataError &&
+        availableProductOptions.length === 0 && (
+          <div className="add-product-complete-notice">
+            <strong>All available products have been added</strong>
+            <span>
+              There are currently no unused product-master records belonging to
+              active categories.
+            </span>
           </div>
         )}
 
-        {unitLoadError && (
-          <div
-            className="add-product-message add-product-message-error"
-            role="alert"
-          >
-            {unitLoadError}
-          </div>
-        )}
-
-        {productLoadError && (
-          <div
-            className="add-product-message add-product-message-error"
-            role="alert"
-          >
-            {productLoadError}
-          </div>
-        )}
-
-        {message.text && (
-          <div
-            className={`add-product-message add-product-message-${message.type}`}
-            role={message.type === "error" ? "alert" : "status"}
-          >
-            {message.text}
-          </div>
-        )}
-
-        {!isLoadingMasterData &&
-          !hasMasterDataError &&
-          availableProductOptions.length === 0 && (
-            <div className="add-product-complete-notice">
-              <strong>All available products have been added</strong>
-
+      <form className="add-product-form" onSubmit={handleSubmit}>
+        <section className="add-product-section add-product-section-primary">
+          <div className="add-product-section-heading">
+            <div className="add-product-section-number">1</div>
+            <div>
+              <p>Product selection</p>
+              <h3>Choose a product record</h3>
               <span>
-                There are currently no unused product-master records belonging
-                to active categories.
+                Search the master list and select the exact product you want to
+                add.
               </span>
             </div>
-          )}
-        <form className="add-product-form" onSubmit={handleSubmit}>
-          <div className="add-product-searchable-select">
-            <label>
-              Search product
+          </div>
+
+          <div className="add-product-selection-grid">
+            <label className="add-product-field add-product-field-search">
+              <span>Search product</span>
               <input
                 type="search"
                 value={productSearchTerm}
                 onChange={(event) => setProductSearchTerm(event.target.value)}
-                placeholder="Search by product name, SKU, category, or source ID"
+                placeholder="Search name, SKU, category, or source ID"
                 disabled={
                   isSubmitting ||
                   isLoadingCategories ||
@@ -638,13 +652,13 @@ function AddProduct({ currentUserRole }) {
                   Boolean(productLoadError)
                 }
               />
-              <small className="add-product-field-note">
-                Type a product name, SKU, category, or source product ID.
-              </small>
+              <small>Use any product detail to narrow the list.</small>
             </label>
 
-            <label>
-              Product name
+            <label className="add-product-field add-product-field-product">
+              <span>
+                Product name <b>*</b>
+              </span>
               <select
                 name="selectedProductId"
                 value={form.selectedProductId}
@@ -681,104 +695,130 @@ function AddProduct({ currentUserRole }) {
                   </optgroup>
                 ))}
               </select>
-              <small className="add-product-field-note">
+              <small>
                 Only unused products from active categories are shown.
               </small>
             </label>
           </div>
+        </section>
 
-          <label>
-            SKU
-            <input
-              type="text"
-              value={form.sku}
-              placeholder="Automatically selected"
-              readOnly
-            />
-          </label>
-
-          <label>
-            Source product ID
-            <input
-              type="text"
-              value={form.selectedProductId}
-              placeholder="Automatically selected"
-              readOnly
-            />
-            <small className="add-product-field-note">
-              This uniquely identifies the exact product-master record.
-            </small>
-          </label>
-
-          <label>
-            Category
-            <input
-              type="text"
-              value={form.category}
-              placeholder="Automatically selected"
-              readOnly
-            />
-          </label>
-
-          <label>
-            Category code
-            <input
-              type="text"
-              value={form.categoryCode}
-              placeholder="Automatically selected"
-              readOnly
-            />
-          </label>
-
-          <label>
-            Unit of measurement
-            <select
-              name="unitCode"
-              value={form.unitCode}
-              onChange={handleChange}
-              disabled={
-                isSubmitting || isLoadingUnits || Boolean(unitLoadError)
-              }
-              required
-            >
-              <option value="">
-                {isLoadingUnits
-                  ? "Loading active units..."
-                  : activeUnits.length === 0
-                    ? "No active units available"
-                    : "Select a unit"}
-              </option>
-
-              {activeUnits.map((unit) => (
-                <option key={unit.id} value={unit.code ?? unit.id}>
-                  {unit.name} ({unit.abbreviation})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label>
-            Unit price
-            <input
-              type="number"
-              value={form.price}
-              placeholder="Automatically selected"
-              readOnly
-            />
-          </label>
-
-          <div className="add-product-barcode-note">
-            <strong>Firestore master data</strong>
-
-            <span>
-              The system verifies both the selected category and unit before
-              saving the product.
-            </span>
+        <section className="add-product-section">
+          <div className="add-product-section-heading">
+            <div className="add-product-section-number">2</div>
+            <div>
+              <p>Master information</p>
+              <h3>Review product details</h3>
+              <span>
+                These fields are filled automatically from the selected master
+                record.
+              </span>
+            </div>
           </div>
 
-          <div className="add-product-form-row">
-            <label>
-              Initial quantity
+          <div className="add-product-details-grid">
+            <label className="add-product-field">
+              <span>SKU</span>
+              <input
+                type="text"
+                value={form.sku}
+                placeholder="Automatically selected"
+                readOnly
+              />
+            </label>
+
+            <label className="add-product-field add-product-field-wide">
+              <span>Source product ID</span>
+              <input
+                type="text"
+                value={form.selectedProductId}
+                placeholder="Automatically selected"
+                readOnly
+              />
+            </label>
+
+            <label className="add-product-field">
+              <span>Category</span>
+              <input
+                type="text"
+                value={form.category}
+                placeholder="Automatically selected"
+                readOnly
+              />
+            </label>
+
+            <label className="add-product-field">
+              <span>Category code</span>
+              <input
+                type="text"
+                value={form.categoryCode}
+                placeholder="Automatically selected"
+                readOnly
+              />
+            </label>
+
+            <label className="add-product-field">
+              <span>Unit price</span>
+              <div className="add-product-money-input">
+                <span>₱</span>
+                <input
+                  type="number"
+                  value={form.price}
+                  placeholder="0.00"
+                  readOnly
+                />
+              </div>
+            </label>
+          </div>
+        </section>
+
+        <section className="add-product-section">
+          <div className="add-product-section-heading">
+            <div className="add-product-section-number">3</div>
+            <div>
+              <p>Inventory setup</p>
+              <h3>Set unit and starting stock</h3>
+              <span>
+                Enter the operational values that will be used for inventory
+                tracking.
+              </span>
+            </div>
+          </div>
+
+          <div className="add-product-inventory-grid">
+            <label className="add-product-field add-product-field-unit">
+              <span>
+                Unit of measurement <b>*</b>
+              </span>
+              <select
+                name="unitCode"
+                value={form.unitCode}
+                onChange={handleChange}
+                disabled={
+                  isSubmitting || isLoadingUnits || Boolean(unitLoadError)
+                }
+                required
+              >
+                <option value="">
+                  {isLoadingUnits
+                    ? "Loading active units..."
+                    : activeUnits.length === 0
+                      ? "No active units available"
+                      : "Select a unit"}
+                </option>
+
+                {activeUnits.map((unit) => (
+                  <option key={unit.id} value={unit.code ?? unit.id}>
+                    {unit.name} ({unit.abbreviation})
+                  </option>
+                ))}
+              </select>
+              <small>Select how this product is counted or issued.</small>
+            </label>
+
+            <label className="add-product-field">
+              <span>
+                Initial quantity <b>*</b>
+              </span>
               <input
                 type="number"
                 name="quantity"
@@ -790,10 +830,13 @@ function AddProduct({ currentUserRole }) {
                 disabled={isSubmitting}
                 required
               />
+              <small>Current stock when this record is created.</small>
             </label>
 
-            <label>
-              Reorder level
+            <label className="add-product-field">
+              <span>
+                Reorder level <b>*</b>
+              </span>
               <input
                 type="number"
                 name="reorderLevel"
@@ -805,26 +848,29 @@ function AddProduct({ currentUserRole }) {
                 disabled={isSubmitting}
                 required
               />
+              <small>Low-stock alert threshold.</small>
             </label>
           </div>
 
-          <div className="form-actions">
-            <button
-              type="submit"
-              className="add-product-submit"
-              disabled={
-                isSubmitting ||
-                isLoadingMasterData ||
-                hasMasterDataError ||
-                !form.selectedProductId ||
-                !form.categoryCode ||
-                !form.unitCode ||
-                form.price === ""
-              }
-            >
-              {isSubmitting ? "Saving Product..." : "Add Product"}
-            </button>
+          <div className="add-product-verification-note">
+            <div>
+              <strong>Verified against Firestore master data</strong>
+              <span>
+                The category and unit are checked again before the product is
+                saved. A category-based barcode will be generated automatically.
+              </span>
+            </div>
+            <span className="add-product-verification-badge">Automatic</span>
+          </div>
+        </section>
 
+        <footer className="add-product-actions">
+          <div>
+            <strong>Ready to create the product?</strong>
+            <span>Required fields are marked with an asterisk.</span>
+          </div>
+
+          <div className="add-product-action-buttons">
             <button
               type="button"
               className="secondary-button"
@@ -844,9 +890,25 @@ function AddProduct({ currentUserRole }) {
             >
               Clear Form
             </button>
+
+            <button
+              type="submit"
+              className="add-product-submit"
+              disabled={
+                isSubmitting ||
+                isLoadingMasterData ||
+                hasMasterDataError ||
+                !form.selectedProductId ||
+                !form.categoryCode ||
+                !form.unitCode ||
+                form.price === ""
+              }
+            >
+              {isSubmitting ? "Saving Product..." : "Add Product"}
+            </button>
           </div>
-        </form>
-      </section>
+        </footer>
+      </form>
     </main>
   );
 }

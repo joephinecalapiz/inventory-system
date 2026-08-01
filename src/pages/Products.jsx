@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import "../styles/Products.css";
 
+import "../styles/ManagementPages.css";
 import {
   PRODUCT_LIMITS,
   PRODUCT_STATUSES,
@@ -909,7 +910,7 @@ function Products({ currentUserRole }) {
   }
 
   return (
-    <main className="page products-page">
+    <main className="page management-full-width-page products-page">
       <header className="products-page-header">
         <div>
           <p className="section-label">Product master data</p>

@@ -4,6 +4,8 @@ import { useNavigate } from "react-router-dom";
 
 import "../styles/App.css";
 
+
+import "../styles/ManagementPages.css";
 import ProductBarcode from "../components/ProductBarcode";
 
 import { USER_ROLES } from "../constants/roles";
@@ -353,7 +355,7 @@ function Inventory({ currentUserRole }) {
   }
 
   return (
-    <main className="page inventory-list-page">
+    <main className="page management-full-width-page inventory-list-page">
       {firebaseError && (
         <div className="firebase-error" role="alert">
           {firebaseError}

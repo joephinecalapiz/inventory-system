@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import "../styles/PurchaseOrders.css";
 
+import "../styles/ManagementPages.css";
 import { USER_ROLES } from "../constants/roles";
 import { PRODUCT_STATUSES } from "../constants/products";
 
@@ -167,9 +168,7 @@ function PurchaseOrders({ currentUserRole }) {
       (error) => {
         console.error("Unable to load suppliers:", error);
 
-        setSupplierError(
-          error?.message || "Unable to load active suppliers.",
-        );
+        setSupplierError(error?.message || "Unable to load active suppliers.");
 
         setIsLoadingSuppliers(false);
       },
@@ -189,9 +188,7 @@ function PurchaseOrders({ currentUserRole }) {
       (error) => {
         console.error("Unable to load products:", error);
 
-        setProductError(
-          error?.message || "Unable to load inventory products.",
-        );
+        setProductError(error?.message || "Unable to load inventory products.");
 
         setIsLoadingProducts(false);
       },
@@ -225,8 +222,7 @@ function PurchaseOrders({ currentUserRole }) {
   const activeProducts = useMemo(() => {
     return products.filter(
       (product) =>
-        (product.status ?? PRODUCT_STATUSES.ACTIVE) ===
-        PRODUCT_STATUSES.ACTIVE,
+        (product.status ?? PRODUCT_STATUSES.ACTIVE) === PRODUCT_STATUSES.ACTIVE,
     );
   }, [products]);
 
@@ -319,7 +315,9 @@ function PurchaseOrders({ currentUserRole }) {
     return calculatedItems.reduce((total, item) => {
       const quantity = Number(item.orderedQuantity);
 
-      return total + (Number.isInteger(quantity) && quantity > 0 ? quantity : 0);
+      return (
+        total + (Number.isInteger(quantity) && quantity > 0 ? quantity : 0)
+      );
     }, 0);
   }, [calculatedItems]);
 
@@ -451,8 +449,7 @@ function PurchaseOrders({ currentUserRole }) {
 
     const item = createEmptyPurchaseOrderItem(product);
 
-    const unitCost =
-      item.unitCost === "" ? "" : Number(item.unitCost);
+    const unitCost = item.unitCost === "" ? "" : Number(item.unitCost);
 
     const preparedItem = {
       ...item,
@@ -566,10 +563,7 @@ function PurchaseOrders({ currentUserRole }) {
     }
 
     if (
-      !isValidExpectedDeliveryDate(
-        form.orderDate,
-        form.expectedDeliveryDate,
-      )
+      !isValidExpectedDeliveryDate(form.orderDate, form.expectedDeliveryDate)
     ) {
       return "The expected delivery date cannot be earlier than the Purchase Order date.";
     }
@@ -602,10 +596,7 @@ function PurchaseOrders({ currentUserRole }) {
         return `Enter a positive whole quantity for ${item.productName}.`;
       }
 
-      if (
-        item.unitCost === "" ||
-        !isValidPurchaseOrderUnitCost(unitCost)
-      ) {
+      if (item.unitCost === "" || !isValidPurchaseOrderUnitCost(unitCost)) {
         return `Enter a valid non-negative unit cost for ${item.productName}.`;
       }
 
@@ -757,8 +748,7 @@ function PurchaseOrders({ currentUserRole }) {
     }
 
     if (
-      getPurchaseOrderStatus(purchaseOrder) !==
-      PURCHASE_ORDER_STATUSES.DRAFT
+      getPurchaseOrderStatus(purchaseOrder) !== PURCHASE_ORDER_STATUSES.DRAFT
     ) {
       setMessage({
         type: "error",
@@ -857,8 +847,7 @@ function PurchaseOrders({ currentUserRole }) {
     }
 
     if (
-      getPurchaseOrderStatus(purchaseOrder) !==
-      PURCHASE_ORDER_STATUSES.DRAFT
+      getPurchaseOrderStatus(purchaseOrder) !== PURCHASE_ORDER_STATUSES.DRAFT
     ) {
       setMessage({
         type: "error",
@@ -908,8 +897,7 @@ function PurchaseOrders({ currentUserRole }) {
       setMessage({
         type: "error",
         text:
-          error?.message ||
-          "Unable to submit the Purchase Order for approval.",
+          error?.message || "Unable to submit the Purchase Order for approval.",
       });
     } finally {
       setBusyPurchaseOrderId("");
@@ -1125,7 +1113,7 @@ function PurchaseOrders({ currentUserRole }) {
   }
 
   return (
-    <main className="page purchase-orders-page">
+    <main className="page management-full-width-page purchase-orders-page">
       <header className="purchase-orders-page-header">
         <div>
           <p className="section-label">Procurement</p>
@@ -1516,7 +1504,6 @@ function PurchaseOrders({ currentUserRole }) {
                 placeholder="Delivery instructions or Purchase Order notes"
                 disabled={isFormUnavailable}
               />
-
               <small>
                 {form.notes.length}/{PURCHASE_ORDER_LIMITS.NOTES_MAX_LENGTH}
               </small>
@@ -1647,8 +1634,7 @@ function PurchaseOrders({ currentUserRole }) {
                 {filteredPurchaseOrders.map((purchaseOrder) => {
                   const status = getPurchaseOrderStatus(purchaseOrder);
 
-                  const isBusy =
-                    busyPurchaseOrderId === purchaseOrder.id;
+                  const isBusy = busyPurchaseOrderId === purchaseOrder.id;
 
                   const hasReceivingHistory =
                     Boolean(purchaseOrder.hasReceivingHistory) ||
@@ -1687,16 +1673,12 @@ function PurchaseOrders({ currentUserRole }) {
                       <td>{formatDisplayDate(purchaseOrder.orderDate)}</td>
 
                       <td>
-                        {formatDisplayDate(
-                          purchaseOrder.expectedDeliveryDate,
-                        )}
+                        {formatDisplayDate(purchaseOrder.expectedDeliveryDate)}
                       </td>
 
                       <td>{Number(purchaseOrder.itemCount ?? 0)}</td>
 
-                      <td>
-                        {Number(purchaseOrder.totalOrderedQuantity ?? 0)}
-                      </td>
+                      <td>{Number(purchaseOrder.totalOrderedQuantity ?? 0)}</td>
 
                       <td>
                         <strong>
@@ -1775,8 +1757,7 @@ function PurchaseOrders({ currentUserRole }) {
                               <span className="purchase-order-locked-label">
                                 {status === PURCHASE_ORDER_STATUSES.SUBMITTED
                                   ? "Pending approval"
-                                  : status ===
-                                      PURCHASE_ORDER_STATUSES.APPROVED
+                                  : status === PURCHASE_ORDER_STATUSES.APPROVED
                                     ? "Ready for receiving"
                                     : "Locked"}
                               </span>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import "../styles/Categories.css";
 
+import "../styles/ManagementPages.css";
 import {
   CATEGORY_STATUSES,
   createCategoryCode,
@@ -434,7 +435,7 @@ function Categories({ currentUserRole }) {
   }
 
   return (
-    <main className="page categories-page">
+    <main className="page management-full-width-page categories-page">
       <header className="categories-page-header">
         <div>
           <p className="section-label">Master data</p>

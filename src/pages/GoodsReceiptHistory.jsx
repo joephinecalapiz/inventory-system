@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import "../styles/GoodsReceiptHistory.css";
 
+import "../styles/ManagementPages.css";
 import GoodsReceiptPrint from "../components/GoodsReceiptPrint";
 
 import { GOODS_RECEIPT_STATUS_LABELS } from "../constants/goodsReceiving";
@@ -184,7 +185,7 @@ function GoodsReceiptHistory() {
   }
 
   return (
-    <main className="page goods-receipt-history-page">
+    <main className="page management-full-width-page goods-receipt-history-page">
       <header className="goods-receipt-history-header">
         <div>
           <p className="section-label">Procurement receiving</p>
