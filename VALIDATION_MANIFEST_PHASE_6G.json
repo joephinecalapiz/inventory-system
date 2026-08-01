@@ -1,0 +1,44 @@
+{
+  "phase": "6G",
+  "title": "Firestore Rules and Security Hardening",
+  "issue_fixed": "Firestore maximum 1000 expressions reached",
+  "baseline": "User-uploaded firestore.rules",
+  "static_tests_executed": true,
+  "static_tests_passed": true,
+  "firestore_emulator_tests_included": true,
+  "firestore_emulator_tests_executed_in_packaging_environment": false,
+  "files": {
+    "README_PHASE_6G.md": {
+      "bytes": 1064,
+      "sha256": "a3a90e64f49868cf7b3050bb74167e55737fab8fbb8e061915085f855550a94d"
+    },
+    "docs/PHASE_6G_FIRESTORE_RULES_SECURITY.md": {
+      "bytes": 2102,
+      "sha256": "c5cce6380c58f817e454544330c9005ee3402102d6154dad68f0288814a36470"
+    },
+    "firestore.rules": {
+      "bytes": 154089,
+      "sha256": "8bac0b8e67d20685bc4188dfc60129ed48768984acdadbb7432a5a6d4589148d"
+    },
+    "scripts/run-phase6g-tests.ps1": {
+      "bytes": 960,
+      "sha256": "ef9d238f8276bfcc67670333b25ef492b54c1023fc4aaae737dea6ba6bc9054a"
+    },
+    "scripts/run-phase6g-tests.sh": {
+      "bytes": 486,
+      "sha256": "89962f5bee8bf14f10d8e39dd4e10ea476a6cf4149112e727342110c60ab65f9"
+    },
+    "tests/firestore/phase6g.fixtures.mjs": {
+      "bytes": 2972,
+      "sha256": "f48d38d29a25a2b46d34bc2370d61061a7531c17c2b4c43aa9dc3df3e65763fd"
+    },
+    "tests/firestore/phase6g.stock-adjustment.rules.test.mjs": {
+      "bytes": 23754,
+      "sha256": "deee64c1d6eed8c4989099586748395a1dcb46e36f0d8d8c693738e4356d3d59"
+    },
+    "tests/static/phase6g.rules-source.test.mjs": {
+      "bytes": 3160,
+      "sha256": "fddb88ac389ef3923fb726ef17381f932a41d0815f907eef262bdd5b90932189"
+    }
+  }
+}

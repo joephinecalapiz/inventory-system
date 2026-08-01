@@ -685,6 +685,7 @@ function hasValidProductStockAuditUpdate() {
         "lastStockMovementQuantity",
         "lastStockMovementUnitCost",
         "lastStockMovementAt",
+        "lastStockMovementBy",
         "updatedBy",
         "updatedAt"
       ])
@@ -722,6 +723,10 @@ function hasValidProductStockAuditUpdate() {
     && request.resource.data.lastStockMovementUnitCost <= 999999999
     && request.resource.data.lastStockMovementAt
       == request.time
+    && request.resource.data.get(
+      "lastStockMovementBy",
+      request.auth.uid
+    ) == request.auth.uid
     && request.resource.data.updatedBy
       == request.auth.uid
     && request.resource.data.updatedAt
@@ -887,6 +892,1314 @@ function stockOutProductMatchesMovementAndOperation(
     && operation.createdAt == request.time;
 }
 
+
+/*
+ * PHASE 6G - STOCK ADJUSTMENT SECURITY HELPERS
+ */
+
+function canReadStockAdjustments() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF",
+    "AUDITOR"
+  ]);
+}
+
+function canCreateStockAdjustmentRequest() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN",
+    "INVENTORY_STAFF"
+  ]);
+}
+
+function canReviewStockAdjustmentRequest() {
+  return hasRole([
+    "SUPERADMIN",
+    "ADMIN"
+  ]);
+}
+
+function isValidStockAdjustmentId(value) {
+  return value is string
+    && value.size() >= 16
+    && value.size() <= 100
+    && value.matches(
+      "^stockadj_[A-Za-z0-9_-]+$"
+    );
+}
+
+function isValidStockAdjustmentOperationId(
+  value
+) {
+  return value is string
+    && value.size() >= 20
+    && value.size() <= 120
+    && value.matches(
+      "^stockadj_(create|post|reject|cancel)_[A-Za-z0-9_-]+$"
+    );
+}
+
+function isValidStockAdjustmentReason(
+  value
+) {
+  return value in [
+    "PHYSICAL_COUNT_CORRECTION",
+    "ENCODING_ERROR",
+    "DAMAGED_FOUND_DURING_COUNT",
+    "EXPIRED_FOUND_DURING_COUNT",
+    "UNRECORDED_STOCK_FOUND",
+    "LOSS_OR_SHORTAGE",
+    "UNIT_CONVERSION_CORRECTION",
+    "OTHER"
+  ];
+}
+
+function isValidStockAdjustmentDirection(
+  value
+) {
+  return value in [
+    "IN",
+    "OUT"
+  ];
+}
+
+function stockAdjustmentReasonMatchesDirection(
+  reason,
+  direction
+) {
+  return isValidStockAdjustmentReason(
+      reason
+    )
+    && isValidStockAdjustmentDirection(
+      direction
+    )
+    && (
+      (
+        reason
+          == "UNRECORDED_STOCK_FOUND"
+        && direction == "IN"
+      )
+      ||
+      (
+        reason in [
+          "DAMAGED_FOUND_DURING_COUNT",
+          "EXPIRED_FOUND_DURING_COUNT",
+          "LOSS_OR_SHORTAGE"
+        ]
+        && direction == "OUT"
+      )
+      ||
+      reason in [
+        "PHYSICAL_COUNT_CORRECTION",
+        "ENCODING_ERROR",
+        "UNIT_CONVERSION_CORRECTION",
+        "OTHER"
+      ]
+    );
+}
+
+function stockAdjustmentDifferenceMatches(
+  systemQuantity,
+  actualQuantity,
+  difference,
+  direction
+) {
+  return systemQuantity is int
+    && systemQuantity >= 0
+    && systemQuantity <= 999999999
+    && actualQuantity is int
+    && actualQuantity >= 0
+    && actualQuantity <= 999999999
+    && difference is int
+    && difference != 0
+    && difference
+      == actualQuantity - systemQuantity
+    && (
+      (
+        difference > 0
+        && direction == "IN"
+      )
+      ||
+      (
+        difference < 0
+        && direction == "OUT"
+      )
+    );
+}
+
+function stockAdjustmentAbsoluteQuantityMatches(
+  quantity,
+  difference
+) {
+  return quantity is int
+    && quantity >= 1
+    && quantity <= 999999999
+    && (
+      (
+        difference > 0
+        && quantity == difference
+      )
+      ||
+      (
+        difference < 0
+        && quantity == 0 - difference
+      )
+    );
+}
+
+function isValidStockAdjustmentMoney(
+  value
+) {
+  return value is number
+    && value >= 0
+    && value <= 999999999999.99;
+}
+
+function stockAdjustmentValueMatches(
+  quantity,
+  unitCost,
+  totalValue
+) {
+  return quantity is int
+    && quantity >= 1
+    && unitCost is number
+    && unitCost >= 0
+    && unitCost <= 999999999
+    && isValidStockAdjustmentMoney(
+      totalValue
+    )
+    && totalValue
+      >= quantity * unitCost - 0.01
+    && totalValue
+      <= quantity * unitCost + 0.01;
+}
+
+function isValidStockAdjustmentCountDate(
+  dateValue,
+  dateKey
+) {
+  return dateValue is timestamp
+    && dateValue <= request.time
+    && dateKey is string
+    && dateKey.matches(
+      "^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
+    );
+}
+
+function hasValidStockAdjustmentOptionalSnapshots(
+  data
+) {
+  return (
+      !data.keys().hasAny([
+        "barcode"
+      ])
+      || (
+        data.barcode is string
+        && data.barcode.size() <= 150
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "category"
+      ])
+      || (
+        data.category is string
+        && data.category.size() <= 150
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "categoryCode"
+      ])
+      || (
+        data.categoryCode is string
+        && data.categoryCode.size() <= 100
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "unitCode"
+      ])
+      || (
+        data.unitCode is string
+        && data.unitCode.size() <= 100
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "unitName"
+      ])
+      || (
+        data.unitName is string
+        && data.unitName.size() <= 100
+      )
+    )
+    && (
+      !data.keys().hasAny([
+        "unitAbbreviation"
+      ])
+      || (
+        data.unitAbbreviation is string
+        && data.unitAbbreviation.size() <= 50
+      )
+    );
+}
+
+function stockAdjustmentRequestMatchesProduct(
+  data
+) {
+  let product = get(
+    /databases/$(database)/documents/products/$(data.productId)
+  ).data;
+
+  return product.get(
+      "status",
+      "ACTIVE"
+    ) == "ACTIVE"
+    && product.quantity
+      == data.systemQuantityAtRequest
+    && product.name == data.productName
+    && product.sku == data.productSku
+    && data.unitCostAtRequest
+      == product.get(
+        "costPrice",
+        0
+      );
+}
+
+function stockAdjustmentCreateOperationMatchesRequest(
+  data,
+  adjustmentId
+) {
+  let operation = getAfter(
+    /databases/$(database)/documents/stockAdjustmentOperations/$(data.createOperationId)
+  ).data;
+
+  return operation.operationId
+      == data.createOperationId
+    && operation.operationType
+      == "CREATE_REQUEST"
+    && operation.operationStatus
+      == "COMPLETED"
+    && operation.adjustmentId
+      == adjustmentId
+    && operation.productId
+      == data.productId
+    && operation.actualCountedQuantity
+      == data.actualCountedQuantity
+    && operation.quantityDifference
+      == data.quantityDifference
+    && operation.adjustmentDirection
+      == data.adjustmentDirection
+    && operation.reason == data.reason
+    && operation.referenceNumber
+      == data.referenceNumber
+    && operation.countDate
+      == data.countDate
+    && operation.countDateKey
+      == data.countDateKey
+    && operation.remarks
+      == data.remarks
+    && operation.performedBy
+      == request.auth.uid
+    && operation.performedByName
+      == data.requestedByName
+    && operation.createdBy
+      == request.auth.uid
+    && operation.createdAt
+      == request.time;
+}
+
+function isValidNewStockAdjustmentRequest(
+  data,
+  adjustmentId
+) {
+  return canCreateStockAdjustmentRequest()
+    && isValidStockAdjustmentId(
+      adjustmentId
+    )
+    && data.keys().hasOnly([
+      "adjustmentId",
+      "createOperationId",
+      "status",
+      "productId",
+      "productName",
+      "productSku",
+      "systemQuantityAtRequest",
+      "actualCountedQuantity",
+      "quantityDifference",
+      "adjustmentDirection",
+      "unitCostAtRequest",
+      "estimatedAdjustmentValue",
+      "reason",
+      "referenceNumber",
+      "countDate",
+      "countDateKey",
+      "remarks",
+      "requestedBy",
+      "requestedByName",
+      "createdBy",
+      "createdAt",
+      "updatedAt",
+      "barcode",
+      "category",
+      "categoryCode",
+      "unitCode",
+      "unitName",
+      "unitAbbreviation"
+    ])
+    && data.keys().hasAll([
+      "adjustmentId",
+      "createOperationId",
+      "status",
+      "productId",
+      "productName",
+      "productSku",
+      "systemQuantityAtRequest",
+      "actualCountedQuantity",
+      "quantityDifference",
+      "adjustmentDirection",
+      "unitCostAtRequest",
+      "estimatedAdjustmentValue",
+      "reason",
+      "referenceNumber",
+      "countDate",
+      "countDateKey",
+      "remarks",
+      "requestedBy",
+      "requestedByName",
+      "createdBy",
+      "createdAt",
+      "updatedAt"
+    ])
+    && data.adjustmentId == adjustmentId
+    && isValidStockAdjustmentOperationId(
+      data.createOperationId
+    )
+    && data.createOperationId.matches(
+      "^stockadj_create_[A-Za-z0-9_-]+$"
+    )
+    && data.status == "SUBMITTED"
+    && data.productId is string
+    && data.productId.size() >= 1
+    && data.productId.size() <= 128
+    && data.productName is string
+    && data.productName.size() >= 1
+    && data.productName.size() <= 150
+    && data.productSku is string
+    && data.productSku.size() >= 1
+    && data.productSku.size() <= 50
+    && stockAdjustmentDifferenceMatches(
+      data.systemQuantityAtRequest,
+      data.actualCountedQuantity,
+      data.quantityDifference,
+      data.adjustmentDirection
+    )
+    && stockAdjustmentReasonMatchesDirection(
+      data.reason,
+      data.adjustmentDirection
+    )
+    && data.unitCostAtRequest is number
+    && data.unitCostAtRequest >= 0
+    && data.unitCostAtRequest <= 999999999
+    && isValidStockAdjustmentMoney(
+      data.estimatedAdjustmentValue
+    )
+    && (
+      (
+        data.quantityDifference > 0
+        && data.estimatedAdjustmentValue
+          >= data.quantityDifference
+            * data.unitCostAtRequest - 0.01
+        && data.estimatedAdjustmentValue
+          <= data.quantityDifference
+            * data.unitCostAtRequest + 0.01
+      )
+      ||
+      (
+        data.quantityDifference < 0
+        && data.estimatedAdjustmentValue
+          >= (0 - data.quantityDifference)
+            * data.unitCostAtRequest - 0.01
+        && data.estimatedAdjustmentValue
+          <= (0 - data.quantityDifference)
+            * data.unitCostAtRequest + 0.01
+      )
+    )
+    && data.referenceNumber is string
+    && data.referenceNumber.size() <= 100
+    && isValidStockAdjustmentCountDate(
+      data.countDate,
+      data.countDateKey
+    )
+    && data.remarks is string
+    && data.remarks.size() <= 500
+    && data.requestedBy
+      == request.auth.uid
+    && data.requestedByName is string
+    && data.requestedByName.size() >= 1
+    && data.requestedByName.size() <= 150
+    && data.createdBy
+      == request.auth.uid
+    && data.createdAt == request.time
+    && data.updatedAt == request.time
+    && hasValidStockAdjustmentOptionalSnapshots(
+      data
+    )
+    && stockAdjustmentRequestMatchesProduct(
+      data
+    )
+    && stockAdjustmentCreateOperationMatchesRequest(
+      data,
+      adjustmentId
+    );
+}
+
+function stockAdjustmentPostLinkedDocumentsMatch(
+  data,
+  adjustmentId
+) {
+  let product = getAfter(
+    /databases/$(database)/documents/products/$(data.productId)
+  ).data;
+
+  let movement = getAfter(
+    /databases/$(database)/documents/stockMovements/$(data.movementId)
+  ).data;
+
+  let operation = getAfter(
+    /databases/$(database)/documents/stockAdjustmentOperations/$(data.postedOperationId)
+  ).data;
+
+  return data.postedOperationId
+      == data.movementId
+    && product.quantity
+      == data.postedNewQuantity
+    && product.lastStockMovementId
+      == data.movementId
+    && product.lastStockMovementReason
+      == "STOCK_ADJUSTMENT"
+    && product.lastStockMovementBy
+      == request.auth.uid
+    && movement.movementId
+      == data.movementId
+    && movement.operationId
+      == data.postedOperationId
+    && movement.adjustmentId
+      == adjustmentId
+    && movement.productId
+      == data.productId
+    && movement.productName
+      == data.productName
+    && movement.productSku
+      == data.productSku
+    && movement.quantityDifference
+      == data.quantityDifference
+    && movement.previousQuantity
+      == data.postedPreviousQuantity
+    && movement.newQuantity
+      == data.postedNewQuantity
+    && movement.unitCost
+      == data.postedUnitCost
+    && movement.totalCost
+      == data.postedTotalValue
+    && movement.approvedBy
+      == request.auth.uid
+    && movement.createdBy
+      == request.auth.uid
+    && movement.createdAt
+      == request.time
+    && operation.operationId
+      == data.postedOperationId
+    && operation.operationType
+      == "POST_ADJUSTMENT"
+    && operation.operationStatus
+      == "COMPLETED"
+    && operation.adjustmentId
+      == adjustmentId
+    && operation.movementId
+      == data.movementId
+    && operation.productId
+      == data.productId
+    && operation.previousQuantity
+      == data.postedPreviousQuantity
+    && operation.newQuantity
+      == data.postedNewQuantity
+    && operation.quantityDifference
+      == data.quantityDifference
+    && operation.unitCost
+      == data.postedUnitCost
+    && operation.totalCost
+      == data.postedTotalValue
+    && operation.performedBy
+      == request.auth.uid
+    && operation.createdBy
+      == request.auth.uid
+    && operation.createdAt
+      == request.time;
+}
+
+function isValidPostedStockAdjustmentRequest(
+  adjustmentId
+) {
+  return canReviewStockAdjustmentRequest()
+    && resource.data.status
+      == "SUBMITTED"
+    && request.resource.data.status
+      == "POSTED"
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "approvedBy",
+        "approvedByName",
+        "approvedAt",
+        "postedOperationId",
+        "movementId",
+        "postedPreviousQuantity",
+        "postedNewQuantity",
+        "postedUnitCost",
+        "postedTotalValue",
+        "postedAt",
+        "updatedAt"
+      ])
+    && request.resource.data.approvedBy
+      == request.auth.uid
+    && request.resource.data.approvedByName
+      is string
+    && request.resource.data.approvedByName.size()
+      >= 1
+    && request.resource.data.approvedByName.size()
+      <= 150
+    && request.resource.data.approvedAt
+      == request.time
+    && isValidStockAdjustmentOperationId(
+      request.resource.data.postedOperationId
+    )
+    && request.resource.data.postedOperationId.matches(
+      "^stockadj_post_[A-Za-z0-9_-]+$"
+    )
+    && request.resource.data.movementId
+      == request.resource.data.postedOperationId
+    && request.resource.data.postedPreviousQuantity
+      is int
+    && request.resource.data.postedPreviousQuantity
+      >= 0
+    && request.resource.data.postedNewQuantity
+      == request.resource.data.postedPreviousQuantity
+        + resource.data.quantityDifference
+    && request.resource.data.postedNewQuantity
+      >= 0
+    && request.resource.data.postedNewQuantity
+      <= 999999999
+    && request.resource.data.postedUnitCost
+      is number
+    && request.resource.data.postedUnitCost
+      >= 0
+    && (
+      (
+        resource.data.quantityDifference > 0
+        && stockAdjustmentValueMatches(
+          resource.data.quantityDifference,
+          request.resource.data.postedUnitCost,
+          request.resource.data.postedTotalValue
+        )
+      )
+      ||
+      (
+        resource.data.quantityDifference < 0
+        && stockAdjustmentValueMatches(
+          0 - resource.data.quantityDifference,
+          request.resource.data.postedUnitCost,
+          request.resource.data.postedTotalValue
+        )
+      )
+    )
+    && request.resource.data.postedAt
+      == request.time
+    && request.resource.data.updatedAt
+      == request.time
+    && (
+      currentUserProfile().role
+        == "SUPERADMIN"
+      || resource.data.requestedBy
+        != request.auth.uid
+    )
+    && stockAdjustmentPostLinkedDocumentsMatch(
+      request.resource.data,
+      adjustmentId
+    );
+}
+
+function stockAdjustmentDecisionOperationMatches(
+  data,
+  adjustmentId,
+  operationId,
+  operationType,
+  decisionReason
+) {
+  let operation = getAfter(
+    /databases/$(database)/documents/stockAdjustmentOperations/$(operationId)
+  ).data;
+
+  return operation.operationId
+      == operationId
+    && operation.operationType
+      == operationType
+    && operation.operationStatus
+      == "COMPLETED"
+    && operation.adjustmentId
+      == adjustmentId
+    && operation.productId
+      == data.productId
+    && operation.decisionReason
+      == decisionReason
+    && operation.performedBy
+      == request.auth.uid
+    && operation.createdBy
+      == request.auth.uid
+    && operation.createdAt
+      == request.time;
+}
+
+function isValidRejectedStockAdjustmentRequest(
+  adjustmentId
+) {
+  return canReviewStockAdjustmentRequest()
+    && resource.data.status
+      == "SUBMITTED"
+    && request.resource.data.status
+      == "REJECTED"
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "rejectedBy",
+        "rejectedByName",
+        "rejectedAt",
+        "rejectionReason",
+        "rejectedOperationId",
+        "updatedAt"
+      ])
+    && request.resource.data.rejectedBy
+      == request.auth.uid
+    && request.resource.data.rejectedByName
+      is string
+    && request.resource.data.rejectedByName.size()
+      >= 1
+    && request.resource.data.rejectedByName.size()
+      <= 150
+    && request.resource.data.rejectedAt
+      == request.time
+    && request.resource.data.rejectionReason
+      is string
+    && request.resource.data.rejectionReason.size()
+      >= 1
+    && request.resource.data.rejectionReason.size()
+      <= 500
+    && isValidStockAdjustmentOperationId(
+      request.resource.data.rejectedOperationId
+    )
+    && request.resource.data.rejectedOperationId.matches(
+      "^stockadj_reject_[A-Za-z0-9_-]+$"
+    )
+    && request.resource.data.updatedAt
+      == request.time
+    && stockAdjustmentDecisionOperationMatches(
+      request.resource.data,
+      adjustmentId,
+      request.resource.data.rejectedOperationId,
+      "REJECT_REQUEST",
+      request.resource.data.rejectionReason
+    );
+}
+
+function isValidCancelledStockAdjustmentRequest(
+  adjustmentId
+) {
+  return canReviewStockAdjustmentRequest()
+    && resource.data.status
+      == "SUBMITTED"
+    && request.resource.data.status
+      == "CANCELLED"
+    && request.resource.data
+      .diff(resource.data)
+      .affectedKeys()
+      .hasOnly([
+        "status",
+        "cancelledBy",
+        "cancelledByName",
+        "cancelledAt",
+        "cancellationReason",
+        "cancelledOperationId",
+        "updatedAt"
+      ])
+    && request.resource.data.cancelledBy
+      == request.auth.uid
+    && request.resource.data.cancelledByName
+      is string
+    && request.resource.data.cancelledByName.size()
+      >= 1
+    && request.resource.data.cancelledByName.size()
+      <= 150
+    && request.resource.data.cancelledAt
+      == request.time
+    && request.resource.data.cancellationReason
+      is string
+    && request.resource.data.cancellationReason.size()
+      >= 1
+    && request.resource.data.cancellationReason.size()
+      <= 500
+    && isValidStockAdjustmentOperationId(
+      request.resource.data.cancelledOperationId
+    )
+    && request.resource.data.cancelledOperationId.matches(
+      "^stockadj_cancel_[A-Za-z0-9_-]+$"
+    )
+    && request.resource.data.updatedAt
+      == request.time
+    && stockAdjustmentDecisionOperationMatches(
+      request.resource.data,
+      adjustmentId,
+      request.resource.data.cancelledOperationId,
+      "CANCEL_REQUEST",
+      request.resource.data.cancellationReason
+    );
+}
+
+function isValidStockAdjustmentProductUpdate(
+  productId
+) {
+  let operationId =
+    request.resource.data.lastStockMovementId;
+
+  let operation = getAfter(
+    /databases/$(database)/documents/stockAdjustmentOperations/$(operationId)
+  ).data;
+
+  let adjustment = getAfter(
+    /databases/$(database)/documents/stockAdjustmentRequests/$(operation.adjustmentId)
+  ).data;
+
+  let movement = getAfter(
+    /databases/$(database)/documents/stockMovements/$(operationId)
+  ).data;
+
+  return canReviewStockAdjustmentRequest()
+    && resource.data.get(
+      "status",
+      "ACTIVE"
+    ) == "ACTIVE"
+    && hasValidProductStockAuditUpdate()
+    && request.resource.data.lastStockMovementReason
+      == "STOCK_ADJUSTMENT"
+    && isValidStockAdjustmentOperationId(
+      operationId
+    )
+    && operationId.matches(
+      "^stockadj_post_[A-Za-z0-9_-]+$"
+    )
+    && request.resource.data.get(
+      "costPrice",
+      0
+    ) == resource.data.get(
+      "costPrice",
+      0
+    )
+    && request.resource.data.quantity
+      == resource.data.quantity
+        + adjustment.quantityDifference
+    && request.resource.data.lastStockMovementType
+      == adjustment.adjustmentDirection
+    && stockAdjustmentAbsoluteQuantityMatches(
+      request.resource.data.lastStockMovementQuantity,
+      adjustment.quantityDifference
+    )
+    && request.resource.data.lastStockMovementUnitCost
+      == resource.data.get(
+        "costPrice",
+        0
+      )
+    && request.resource.data.lastStockMovementBy
+      == request.auth.uid
+    && adjustment.status == "POSTED"
+    && adjustment.productId == productId
+    && adjustment.postedOperationId
+      == operationId
+    && adjustment.movementId
+      == operationId
+    && adjustment.postedPreviousQuantity
+      == resource.data.quantity
+    && adjustment.postedNewQuantity
+      == request.resource.data.quantity
+    && movement.adjustmentId
+      == adjustment.adjustmentId
+    && movement.productId == productId
+    && movement.previousQuantity
+      == resource.data.quantity
+    && movement.newQuantity
+      == request.resource.data.quantity
+    && movement.quantityDifference
+      == adjustment.quantityDifference
+    && operation.operationId
+      == operationId
+    && operation.operationType
+      == "POST_ADJUSTMENT"
+    && operation.adjustmentId
+      == adjustment.adjustmentId
+    && operation.productId == productId;
+}
+
+function isValidStockAdjustmentMovement(
+  data,
+  movementId
+) {
+  let adjustment = getAfter(
+    /databases/$(database)/documents/stockAdjustmentRequests/$(data.adjustmentId)
+  ).data;
+
+  let product = getAfter(
+    /databases/$(database)/documents/products/$(data.productId)
+  ).data;
+
+  let operation = getAfter(
+    /databases/$(database)/documents/stockAdjustmentOperations/$(movementId)
+  ).data;
+
+  return canReviewStockAdjustmentRequest()
+    && isValidStockAdjustmentOperationId(
+      movementId
+    )
+    && movementId.matches(
+      "^stockadj_post_[A-Za-z0-9_-]+$"
+    )
+    && data.keys().hasOnly([
+      "movementId",
+      "operationId",
+      "adjustmentId",
+      "movementType",
+      "reason",
+      "adjustmentReason",
+      "adjustmentDirection",
+      "productId",
+      "productName",
+      "productSku",
+      "quantity",
+      "quantityDifference",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "referenceNumber",
+      "countDate",
+      "countDateKey",
+      "remarks",
+      "requestedBy",
+      "requestedByName",
+      "approvedBy",
+      "approvedByName",
+      "createdBy",
+      "createdAt",
+      "barcode",
+      "category",
+      "categoryCode",
+      "unitCode",
+      "unitName",
+      "unitAbbreviation"
+    ])
+    && data.keys().hasAll([
+      "movementId",
+      "operationId",
+      "adjustmentId",
+      "movementType",
+      "reason",
+      "adjustmentReason",
+      "adjustmentDirection",
+      "productId",
+      "productName",
+      "productSku",
+      "quantity",
+      "quantityDifference",
+      "previousQuantity",
+      "newQuantity",
+      "unitCost",
+      "totalCost",
+      "referenceNumber",
+      "countDate",
+      "countDateKey",
+      "remarks",
+      "requestedBy",
+      "requestedByName",
+      "approvedBy",
+      "approvedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.movementId == movementId
+    && data.operationId == movementId
+    && isValidStockAdjustmentId(
+      data.adjustmentId
+    )
+    && data.reason
+      == "STOCK_ADJUSTMENT"
+    && data.adjustmentReason
+      == adjustment.reason
+    && data.adjustmentDirection
+      == adjustment.adjustmentDirection
+    && data.movementType
+      == adjustment.adjustmentDirection
+    && data.productId
+      == adjustment.productId
+    && data.productName
+      == adjustment.productName
+    && data.productSku
+      == adjustment.productSku
+    && data.quantityDifference
+      == adjustment.quantityDifference
+    && stockAdjustmentAbsoluteQuantityMatches(
+      data.quantity,
+      data.quantityDifference
+    )
+    && data.previousQuantity
+      == adjustment.postedPreviousQuantity
+    && data.newQuantity
+      == adjustment.postedNewQuantity
+    && data.newQuantity
+      == data.previousQuantity
+        + data.quantityDifference
+    && stockAdjustmentValueMatches(
+      data.quantity,
+      data.unitCost,
+      data.totalCost
+    )
+    && data.unitCost
+      == adjustment.postedUnitCost
+    && data.totalCost
+      == adjustment.postedTotalValue
+    && data.referenceNumber
+      == adjustment.referenceNumber
+    && data.countDate
+      == adjustment.countDate
+    && data.countDateKey
+      == adjustment.countDateKey
+    && data.remarks
+      == adjustment.remarks
+    && data.requestedBy
+      == adjustment.requestedBy
+    && data.requestedByName
+      == adjustment.requestedByName
+    && data.approvedBy
+      == request.auth.uid
+    && data.approvedByName
+      == adjustment.approvedByName
+    && data.createdBy
+      == request.auth.uid
+    && data.createdAt
+      == request.time
+    && product.quantity
+      == data.newQuantity
+    && product.lastStockMovementId
+      == movementId
+    && operation.operationId
+      == movementId
+    && operation.adjustmentId
+      == data.adjustmentId
+    && operation.movementId
+      == movementId
+    && hasValidStockAdjustmentOptionalSnapshots(
+      data
+    );
+}
+
+function isValidStockAdjustmentCreateOperation(
+  data,
+  operationId
+) {
+  let adjustment = getAfter(
+    /databases/$(database)/documents/stockAdjustmentRequests/$(data.adjustmentId)
+  ).data;
+
+  return canCreateStockAdjustmentRequest()
+    && isValidStockAdjustmentOperationId(
+      operationId
+    )
+    && operationId.matches(
+      "^stockadj_create_[A-Za-z0-9_-]+$"
+    )
+    && data.keys().hasOnly([
+      "operationId",
+      "operationType",
+      "operationStatus",
+      "adjustmentId",
+      "productId",
+      "actualCountedQuantity",
+      "quantityDifference",
+      "adjustmentDirection",
+      "reason",
+      "referenceNumber",
+      "countDate",
+      "countDateKey",
+      "remarks",
+      "performedBy",
+      "performedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.keys().hasAll([
+      "operationId",
+      "operationType",
+      "operationStatus",
+      "adjustmentId",
+      "productId",
+      "actualCountedQuantity",
+      "quantityDifference",
+      "adjustmentDirection",
+      "reason",
+      "referenceNumber",
+      "countDate",
+      "countDateKey",
+      "remarks",
+      "performedBy",
+      "performedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.operationId == operationId
+    && data.operationType
+      == "CREATE_REQUEST"
+    && data.operationStatus
+      == "COMPLETED"
+    && adjustment.adjustmentId
+      == data.adjustmentId
+    && adjustment.createOperationId
+      == operationId
+    && adjustment.productId
+      == data.productId
+    && adjustment.actualCountedQuantity
+      == data.actualCountedQuantity
+    && adjustment.quantityDifference
+      == data.quantityDifference
+    && adjustment.adjustmentDirection
+      == data.adjustmentDirection
+    && adjustment.reason == data.reason
+    && adjustment.referenceNumber
+      == data.referenceNumber
+    && adjustment.countDate
+      == data.countDate
+    && adjustment.countDateKey
+      == data.countDateKey
+    && adjustment.remarks
+      == data.remarks
+    && data.performedBy
+      == request.auth.uid
+    && data.performedByName
+      == adjustment.requestedByName
+    && data.createdBy
+      == request.auth.uid
+    && data.createdAt
+      == request.time;
+}
+
+function isValidStockAdjustmentPostOperation(
+  data,
+  operationId
+) {
+  let adjustment = getAfter(
+    /databases/$(database)/documents/stockAdjustmentRequests/$(data.adjustmentId)
+  ).data;
+
+  let movement = getAfter(
+    /databases/$(database)/documents/stockMovements/$(operationId)
+  ).data;
+
+  let product = getAfter(
+    /databases/$(database)/documents/products/$(data.productId)
+  ).data;
+
+  return canReviewStockAdjustmentRequest()
+    && isValidStockAdjustmentOperationId(
+      operationId
+    )
+    && operationId.matches(
+      "^stockadj_post_[A-Za-z0-9_-]+$"
+    )
+    && data.keys().hasOnly([
+      "operationId",
+      "operationType",
+      "operationStatus",
+      "adjustmentId",
+      "movementId",
+      "productId",
+      "previousQuantity",
+      "newQuantity",
+      "quantity",
+      "quantityDifference",
+      "adjustmentDirection",
+      "unitCost",
+      "totalCost",
+      "performedBy",
+      "performedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.keys().hasAll([
+      "operationId",
+      "operationType",
+      "operationStatus",
+      "adjustmentId",
+      "movementId",
+      "productId",
+      "previousQuantity",
+      "newQuantity",
+      "quantity",
+      "quantityDifference",
+      "adjustmentDirection",
+      "unitCost",
+      "totalCost",
+      "performedBy",
+      "performedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.operationId == operationId
+    && data.operationType
+      == "POST_ADJUSTMENT"
+    && data.operationStatus
+      == "COMPLETED"
+    && data.movementId == operationId
+    && adjustment.status == "POSTED"
+    && adjustment.adjustmentId
+      == data.adjustmentId
+    && adjustment.postedOperationId
+      == operationId
+    && adjustment.movementId
+      == operationId
+    && adjustment.productId
+      == data.productId
+    && adjustment.postedPreviousQuantity
+      == data.previousQuantity
+    && adjustment.postedNewQuantity
+      == data.newQuantity
+    && adjustment.quantityDifference
+      == data.quantityDifference
+    && adjustment.adjustmentDirection
+      == data.adjustmentDirection
+    && stockAdjustmentAbsoluteQuantityMatches(
+      data.quantity,
+      data.quantityDifference
+    )
+    && data.newQuantity
+      == data.previousQuantity
+        + data.quantityDifference
+    && data.unitCost
+      == adjustment.postedUnitCost
+    && data.totalCost
+      == adjustment.postedTotalValue
+    && data.performedBy
+      == request.auth.uid
+    && data.performedByName
+      == adjustment.approvedByName
+    && data.createdBy
+      == request.auth.uid
+    && data.createdAt
+      == request.time
+    && movement.operationId
+      == operationId
+    && movement.adjustmentId
+      == data.adjustmentId
+    && product.quantity
+      == data.newQuantity;
+}
+
+function isValidStockAdjustmentDecisionOperation(
+  data,
+  operationId
+) {
+  let adjustment = getAfter(
+    /databases/$(database)/documents/stockAdjustmentRequests/$(data.adjustmentId)
+  ).data;
+
+  return canReviewStockAdjustmentRequest()
+    && isValidStockAdjustmentOperationId(
+      operationId
+    )
+    && data.keys().hasOnly([
+      "operationId",
+      "operationType",
+      "operationStatus",
+      "adjustmentId",
+      "productId",
+      "decisionReason",
+      "performedBy",
+      "performedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.keys().hasAll([
+      "operationId",
+      "operationType",
+      "operationStatus",
+      "adjustmentId",
+      "productId",
+      "decisionReason",
+      "performedBy",
+      "performedByName",
+      "createdBy",
+      "createdAt"
+    ])
+    && data.operationId == operationId
+    && data.operationStatus
+      == "COMPLETED"
+    && data.operationType in [
+      "REJECT_REQUEST",
+      "CANCEL_REQUEST"
+    ]
+    && data.decisionReason is string
+    && data.decisionReason.size() >= 1
+    && data.decisionReason.size() <= 500
+    && data.productId
+      == adjustment.productId
+    && data.performedBy
+      == request.auth.uid
+    && data.createdBy
+      == request.auth.uid
+    && data.createdAt
+      == request.time
+    && (
+      (
+        data.operationType
+          == "REJECT_REQUEST"
+        && operationId.matches(
+          "^stockadj_reject_[A-Za-z0-9_-]+$"
+        )
+        && adjustment.status
+          == "REJECTED"
+        && adjustment.rejectedOperationId
+          == operationId
+        && adjustment.rejectionReason
+          == data.decisionReason
+      )
+      ||
+      (
+        data.operationType
+          == "CANCEL_REQUEST"
+        && operationId.matches(
+          "^stockadj_cancel_[A-Za-z0-9_-]+$"
+        )
+        && adjustment.status
+          == "CANCELLED"
+        && adjustment.cancelledOperationId
+          == operationId
+        && adjustment.cancellationReason
+          == data.decisionReason
+      )
+    );
+}
+
 function isValidProductStockUpdate(
   productId
 ) {
@@ -907,6 +2220,12 @@ function isValidProductStockUpdate(
           "OTHER"
         ]
         && manualStockInProductMatchesMovementAndOperation(
+          productId
+        )
+      )
+      ||
+      (
+        isValidStockAdjustmentProductUpdate(
           productId
         )
       )
@@ -968,16 +2287,42 @@ match /products/{productId} {
       productId
     );
 
+  /*
+   * Route Stock Adjustment writes first.
+   *
+   * This avoids evaluating every unrelated
+   * Product validator before the adjustment
+   * validator and keeps evaluation below the
+   * Firestore 1000-expression limit.
+   */
   allow update: if canManageProducts()
     && (
-      isValidProductMasterUpdate()
-      || isValidProductUnitAssignment()
-      || isValidProductSourceAssignment(
-        productId
+      (
+        request.resource.data.get(
+          "lastStockMovementReason",
+          ""
+        ) == "STOCK_ADJUSTMENT"
+        && isValidStockAdjustmentProductUpdate(
+          productId
+        )
       )
-      || isValidProductMigrationUpdate()
-      || isValidProductStockUpdate(
-        productId
+      ||
+      (
+        request.resource.data.get(
+          "lastStockMovementReason",
+          ""
+        ) != "STOCK_ADJUSTMENT"
+        && (
+          isValidProductMasterUpdate()
+          || isValidProductUnitAssignment()
+          || isValidProductSourceAssignment(
+            productId
+          )
+          || isValidProductMigrationUpdate()
+          || isValidProductStockUpdate(
+            productId
+          )
+        )
       )
     );
 
@@ -1654,23 +2999,46 @@ match /stockMovements/{movementId} {
     "AUDITOR"
   ]);
 
+  /*
+   * Route by movement reason before evaluating
+   * the large movement validators.
+   */
   allow create: if hasRole([
       "SUPERADMIN",
       "ADMIN",
       "INVENTORY_STAFF"
     ])
     && (
-      isValidManualStockInMovement(
-        request.resource.data,
-        movementId
+      (
+        request.resource.data.get(
+          "reason",
+          ""
+        ) == "STOCK_ADJUSTMENT"
+        && isValidStockAdjustmentMovement(
+          request.resource.data,
+          movementId
+        )
       )
-      || isValidPurchaseReceiptMovement(
-        request.resource.data,
-        movementId
-      )
-      || isValidManualStockOutMovement(
-        request.resource.data,
-        movementId
+      ||
+      (
+        request.resource.data.get(
+          "reason",
+          ""
+        ) != "STOCK_ADJUSTMENT"
+        && (
+          isValidManualStockInMovement(
+            request.resource.data,
+            movementId
+          )
+          || isValidPurchaseReceiptMovement(
+            request.resource.data,
+            movementId
+          )
+          || isValidManualStockOutMovement(
+            request.resource.data,
+            movementId
+          )
+        )
       )
     );
 
@@ -2017,6 +3385,99 @@ match /stockOutOperations/{operationId} {
     && stockOutMovementMatchesOperation(
       request.resource.data,
       operationId
+    );
+
+  allow update, delete: if false;
+}
+
+
+/*
+ * STOCK ADJUSTMENT REQUESTS
+ */
+match /stockAdjustmentRequests/{adjustmentId} {
+  allow get, list: if canReadStockAdjustments();
+
+  allow create: if isValidNewStockAdjustmentRequest(
+    request.resource.data,
+    adjustmentId
+  );
+
+  /*
+   * Route by requested final status so only one
+   * transition validator runs per update.
+   */
+  allow update: if (
+      (
+        request.resource.data.status
+          == "POSTED"
+        && isValidPostedStockAdjustmentRequest(
+          adjustmentId
+        )
+      )
+      ||
+      (
+        request.resource.data.status
+          == "REJECTED"
+        && isValidRejectedStockAdjustmentRequest(
+          adjustmentId
+        )
+      )
+      ||
+      (
+        request.resource.data.status
+          == "CANCELLED"
+        && isValidCancelledStockAdjustmentRequest(
+          adjustmentId
+        )
+      )
+    );
+
+  allow delete: if false;
+}
+
+/*
+ * STOCK ADJUSTMENT OPERATIONS
+ *
+ * Operations are immutable and are loaded by ID.
+ * Listing the entire internal collection is denied.
+ */
+match /stockAdjustmentOperations/{operationId} {
+  allow get: if canReadStockAdjustments();
+  allow list: if false;
+
+  /*
+   * Route by operation type before invoking a
+   * cross-document validator.
+   */
+  allow create: if (
+      (
+        request.resource.data.operationType
+          == "CREATE_REQUEST"
+        && isValidStockAdjustmentCreateOperation(
+          request.resource.data,
+          operationId
+        )
+      )
+      ||
+      (
+        request.resource.data.operationType
+          == "POST_ADJUSTMENT"
+        && isValidStockAdjustmentPostOperation(
+          request.resource.data,
+          operationId
+        )
+      )
+      ||
+      (
+        request.resource.data.operationType in [
+          "REJECT_REQUEST",
+          "CANCEL_REQUEST"
+        ]
+        && isValidStockAdjustmentDecisionOperation(
+          request.resource.data,
+          operationId
+        )
+      )
     );
 
   allow update, delete: if false;
