@@ -1,0 +1,60 @@
+{
+  "phase": "6D",
+  "title": "Stock Adjustment Approval and Posting",
+  "static_tests_executed": true,
+  "static_tests_passed": true,
+  "service_syntax_check_executed": true,
+  "service_syntax_check_passed": true,
+  "project_lint_executed_in_packaging_environment": false,
+  "project_build_executed_in_packaging_environment": false,
+  "firestore_runtime_test_executed": false,
+  "route_modified": false,
+  "sidebar_modified": false,
+  "firestore_rules_modified": false,
+  "files": {
+    "README_PHASE_6D.md": {
+      "bytes": 876,
+      "sha256": "92d9967abdf1f458af41a43e9bb0f128372fd53135f5d15156a0b4660064f929"
+    },
+    "docs/PHASE_6D_STOCK_ADJUSTMENT_APPROVAL_POSTING.md": {
+      "bytes": 1075,
+      "sha256": "90f40b89dfe6243dbaff16e501d5155292c0e16e9c6ce50ff71e688d8e1f5d98"
+    },
+    "scripts/run-phase6d-tests.ps1": {
+      "bytes": 658,
+      "sha256": "93ed44370447f98d0c07f5434c3e62343e323b3325f44c4bcdcc0f8372a0c8ce"
+    },
+    "scripts/run-phase6d-tests.sh": {
+      "bytes": 300,
+      "sha256": "720af6cfad79a7cec1291272aa97a70eda7920444ed21e36535315d888006887"
+    },
+    "src/constants/stockAdjustment.js": {
+      "bytes": 19607,
+      "sha256": "c0bb76842cdd26aa324d238357b7cf17ffc4030f9d50b776b338d641d1013e9b"
+    },
+    "src/pages/StockAdjustmentReview.jsx": {
+      "bytes": 18480,
+      "sha256": "ef9826014f91d49fc6da37ddf9e8deab8cb3b933aaf4be01af8db84e0598c578"
+    },
+    "src/pages/StockAdjustments.jsx": {
+      "bytes": 34350,
+      "sha256": "7ba6d41cb4a8ba97c2d402ad5bf21039a380fcb105f2fb8251d65737007339b3"
+    },
+    "src/services/stockAdjustmentService.js": {
+      "bytes": 41438,
+      "sha256": "7a735d62305c38e13f10b459b0176006104bb1546b1b54adda75f3c961f855bf"
+    },
+    "src/styles/StockAdjustmentReview.css": {
+      "bytes": 7266,
+      "sha256": "3c8049eacb574224b9df0fd9a43282026e11c25c8d01292b51cb969fd04e94c3"
+    },
+    "src/styles/StockAdjustments.css": {
+      "bytes": 12488,
+      "sha256": "8ec2cb11506c1c0110854ca21e35ef17a35bc9c68b5b5ef5dd4d46d1caf41dcf"
+    },
+    "tests/static/phase6d.stock-adjustment-approval.test.mjs": {
+      "bytes": 3740,
+      "sha256": "f4c4804782604765ac113c0727bbbda1249338102b8bd6fd56276e7cf394ad4c"
+    }
+  }
+}

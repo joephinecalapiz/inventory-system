@@ -16,7 +16,9 @@ import Inventory from "./pages/Inventory";
 import PurchaseOrders from "./pages/PurchaseOrders";
 import StockIn from "./pages/StockIn";
 import StockOut from "./pages/StockOut";
-
+import StockAdjustmentHistory from "./pages/StockAdjustmentHistory";
+import StockAdjustmentReview from "./pages/StockAdjustmentReview";
+import StockAdjustments from "./pages/StockAdjustments";
 import Suppliers from "./pages/Suppliers";
 import Login from "./pages/Login";
 import Products from "./pages/Products";
@@ -248,6 +250,52 @@ function App() {
               ]}
             >
               <StockOut currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/stock-adjustments"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <StockAdjustments currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/stock-adjustments/review"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[USER_ROLES.SUPERADMIN, USER_ROLES.ADMIN]}
+            >
+              <StockAdjustmentReview />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/stock-adjustments/history"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <StockAdjustmentHistory />
             </RequireRole>
           }
         />

@@ -24,6 +24,9 @@ import {
 } from "./LayoutIcons";
 
 import StockOutIcon from "./StockOutIcon";
+import StockAdjustmentIcon from "./StockAdjustmentIcon";
+import StockAdjustmentReviewIcon from "./StockAdjustmentReviewIcon";
+import StockAdjustmentHistoryIcon from "./StockAdjustmentHistoryIcon";
 
 import logo from "../../assets/logo.png";
 
@@ -62,6 +65,38 @@ const NAVIGATION_ITEMS = [
     label: "Stock Out",
     path: "/stock-out",
     icon: StockOutIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Stock Adjustments",
+    path: "/stock-adjustments",
+    icon: StockAdjustmentIcon,
+    end: true,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
+    label: "Adjustment Review",
+    path: "/stock-adjustments/review",
+    icon: StockAdjustmentReviewIcon,
+    allowedRoles: [USER_ROLES.SUPERADMIN, USER_ROLES.ADMIN],
+  },
+
+  {
+    label: "Adjustment History",
+    path: "/stock-adjustments/history",
+    icon: StockAdjustmentHistoryIcon,
     allowedRoles: [
       USER_ROLES.SUPERADMIN,
       USER_ROLES.ADMIN,
@@ -247,6 +282,7 @@ function Sidebar({ isOpen, onClose, userRole }) {
                 key={item.path}
                 to={item.path}
                 className={getNavClass}
+                end={item.end ?? false}
                 onClick={onClose}
               >
                 <span className="sidebar-link-icon">

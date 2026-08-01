@@ -1,0 +1,377 @@
+.stock-adjustment-review-page {
+  min-height: calc(100vh - 92px);
+  padding: 30px 34px 64px;
+  background: #f7f8f6;
+  color: #17211a;
+}
+
+.stock-adjustment-review-page *,
+.stock-adjustment-review-page *::before,
+.stock-adjustment-review-page *::after {
+  box-sizing: border-box;
+}
+
+.stock-adjustment-review-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+
+.stock-adjustment-review-eyebrow {
+  margin: 0 0 6px;
+  color: #66734d;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.stock-adjustment-review-header h2,
+.stock-adjustment-review-modal h3 {
+  margin: 0;
+  color: #17211a;
+}
+
+.stock-adjustment-review-header h2 {
+  font-size: clamp(25px, 3vw, 34px);
+  letter-spacing: -0.035em;
+}
+
+.stock-adjustment-review-header > div:first-child > p:last-child {
+  max-width: 720px;
+  margin: 9px 0 0;
+  color: #68726b;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.stock-adjustment-review-counter {
+  min-width: 150px;
+  padding: 14px 16px;
+  border: 1px solid #d4dace;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.stock-adjustment-review-counter span,
+.stock-adjustment-review-counter strong {
+  display: block;
+}
+
+.stock-adjustment-review-counter span {
+  color: #788079;
+  font-size: 11px;
+}
+
+.stock-adjustment-review-counter strong {
+  margin-top: 4px;
+  color: #405032;
+  font-size: 22px;
+}
+
+.stock-adjustment-review-message {
+  margin-bottom: 18px;
+  padding: 13px 15px;
+  border: 1px solid;
+  border-radius: 9px;
+  font-size: 13px;
+}
+
+.stock-adjustment-review-message-success {
+  border-color: #91c7a0;
+  background: #f1faf3;
+  color: #176b35;
+}
+
+.stock-adjustment-review-message-error {
+  border-color: #e3a2a2;
+  background: #fff4f4;
+  color: #a52b2b;
+}
+
+.stock-adjustment-review-card {
+  padding: 22px;
+  border: 1px solid #d7ddd4;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.stock-adjustment-review-toolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.stock-adjustment-review-toolbar label,
+.stock-adjustment-review-reason {
+  display: grid;
+  gap: 7px;
+  color: #344038;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stock-adjustment-review-toolbar input,
+.stock-adjustment-review-reason textarea {
+  width: 100%;
+  border: 1px solid #cbd3ca;
+  border-radius: 8px;
+  outline: none;
+  background: #fff;
+  color: #17211a;
+  font: inherit;
+}
+
+.stock-adjustment-review-toolbar input {
+  min-height: 43px;
+  padding: 10px 11px;
+}
+
+.stock-adjustment-review-reason textarea {
+  min-height: 100px;
+  padding: 11px;
+  resize: vertical;
+}
+
+.stock-adjustment-review-toolbar button,
+.stock-adjustment-review-actions button,
+.stock-adjustment-review-modal-actions button {
+  min-height: 39px;
+  padding: 9px 13px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.stock-adjustment-review-toolbar button,
+.stock-adjustment-review-actions .cancel,
+.stock-adjustment-review-modal-actions .secondary {
+  border: 1px solid #cbd2c8;
+  background: #fff;
+  color: #374239;
+}
+
+.stock-adjustment-review-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid #e0e4de;
+  border-radius: 9px;
+}
+
+.stock-adjustment-review-table {
+  width: 100%;
+  min-width: 1050px;
+  border-collapse: collapse;
+}
+
+.stock-adjustment-review-table th,
+.stock-adjustment-review-table td {
+  padding: 12px 13px;
+  border-bottom: 1px solid #e7eae5;
+  color: #4c554f;
+  font-size: 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.stock-adjustment-review-table th {
+  background: #f7f9f6;
+  color: #667068;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.stock-adjustment-review-table td > strong,
+.stock-adjustment-review-table td > span {
+  display: block;
+}
+
+.stock-adjustment-review-table td > span {
+  margin-top: 3px;
+  color: #7c847e;
+  font-size: 10px;
+}
+
+.stock-adjustment-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stock-adjustment-review-actions .approve,
+.stock-adjustment-review-modal-actions .primary {
+  border: 1px solid #455735;
+  background: #526541;
+  color: #fff;
+}
+
+.stock-adjustment-review-actions .reject {
+  border: 1px solid #b95e5e;
+  background: #fff;
+  color: #9d3434;
+}
+
+.stock-adjustment-review-empty {
+  padding: 42px 20px;
+  border: 1px dashed #ccd4ca;
+  border-radius: 9px;
+  color: #78817a;
+  text-align: center;
+}
+
+.stock-adjustment-review-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  overflow-y: auto;
+  background: rgba(18, 24, 19, 0.58);
+}
+
+.stock-adjustment-review-modal {
+  width: min(100%, 720px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: 22px;
+  border: 1px solid #cfd6cc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.stock-adjustment-review-modal-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+
+.stock-adjustment-review-modal-heading > button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  border: 1px solid #ccd3ca;
+  border-radius: 8px;
+  background: #fff;
+  color: #4d564f;
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.stock-adjustment-review-details {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stock-adjustment-review-details div {
+  padding: 12px;
+  border: 1px solid #e1e5df;
+  border-radius: 8px;
+  background: #fafbf9;
+}
+
+.stock-adjustment-review-details span,
+.stock-adjustment-review-details strong {
+  display: block;
+}
+
+.stock-adjustment-review-details span {
+  color: #778078;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.stock-adjustment-review-details strong {
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+  color: #283129;
+  font-size: 13px;
+}
+
+.stock-adjustment-review-warning {
+  margin-bottom: 14px;
+  padding: 13px 14px;
+  border: 1px solid #dcc88e;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #725b20;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.stock-adjustment-review-checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-bottom: 18px;
+  color: #59625b;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.stock-adjustment-review-checkbox input {
+  margin-top: 3px;
+}
+
+.stock-adjustment-review-reason {
+  margin-bottom: 18px;
+}
+
+.stock-adjustment-review-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.stock-adjustment-review-modal-actions button:disabled,
+.stock-adjustment-review-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 760px) {
+  .stock-adjustment-review-page {
+    min-height: calc(100vh - 76px);
+    padding: 22px 16px 48px;
+  }
+
+  .stock-adjustment-review-header {
+    display: grid;
+  }
+
+  .stock-adjustment-review-counter {
+    width: 100%;
+  }
+
+  .stock-adjustment-review-details {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .stock-adjustment-review-card,
+  .stock-adjustment-review-modal {
+    padding: 17px;
+  }
+
+  .stock-adjustment-review-toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .stock-adjustment-review-modal-actions {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "phase": "6E",
+  "title": "Stock Adjustment History and Detail View",
+  "baseline": "Phase 6F retained",
+  "static_tests_executed": true,
+  "static_tests_passed": true,
+  "project_lint_executed_in_packaging_environment": false,
+  "project_build_executed_in_packaging_environment": false,
+  "firestore_runtime_test_executed": false,
+  "firestore_rules_modified": false,
+  "history_route_added_as_catch_up": true,
+  "files": {
+    "README_PHASE_6E.md": {
+      "bytes": 1128,
+      "sha256": "c0a09d15744efc2fb0ffa5b42f413720ff5b234574944664302ed5e244315b47"
+    },
+    "docs/PHASE_6E_STOCK_ADJUSTMENT_HISTORY.md": {
+      "bytes": 1442,
+      "sha256": "fb92c674e6fde155c56c9bf9f1f97d61f68ccd4689c5792132be8dbaf1613052"
+    },
+    "scripts/run-phase6e-tests.ps1": {
+      "bytes": 658,
+      "sha256": "feeecd7ddc5b741529b9e7b7928b1bfe7c4f2f048e40385d429e138465cc7d3d"
+    },
+    "scripts/run-phase6e-tests.sh": {
+      "bytes": 298,
+      "sha256": "8ac1538f50c0f67f36c9796f5c3abd7ca7d96659909e462f4a4808598fded4d9"
+    },
+    "src/App.jsx": {
+      "bytes": 13624,
+      "sha256": "de4602f618ff4305ba48b1459718cb7ceaf0cf0759cd36bebe954e821a1b6222"
+    },
+    "src/components/layout/Sidebar.jsx": {
+      "bytes": 7259,
+      "sha256": "e9acaad7567149af31eb0a3fd1b5162080a8618b83f1cc506a43f54ff7010b48"
+    },
+    "src/components/layout/StockAdjustmentHistoryIcon.jsx": {
+      "bytes": 402,
+      "sha256": "38c3fe052018fa53a4a45208f9c2e7db947176238c455aef6153b32dcdb5bd7b"
+    },
+    "src/components/layout/StockAdjustmentIcon.jsx": {
+      "bytes": 349,
+      "sha256": "9900b01cd3a9141a889ac5b602c97a3ca91d94eee6892b6b0f0b46d6826be6e4"
+    },
+    "src/components/layout/StockAdjustmentReviewIcon.jsx": {
+      "bytes": 349,
+      "sha256": "74f4d93494e68aded10909c54d2029f35847049ac22858743aeebb9a954b78eb"
+    },
+    "src/components/layout/Topbar.jsx": {
+      "bytes": 2149,
+      "sha256": "0590330fa3777fc523bba3d80c3d5c55cb0aa33fde47ee8581c23d424255c3bb"
+    },
+    "src/constants/stockAdjustment.js": {
+      "bytes": 19607,
+      "sha256": "c0bb76842cdd26aa324d238357b7cf17ffc4030f9d50b776b338d641d1013e9b"
+    },
+    "src/pages/StockAdjustmentHistory.jsx": {
+      "bytes": 28803,
+      "sha256": "9db928c87d329f72fe1d57ffa723ed7351a8ef55c38143bf6543dc2fe9684be4"
+    },
+    "src/pages/StockAdjustmentReview.jsx": {
+      "bytes": 18480,
+      "sha256": "ef9826014f91d49fc6da37ddf9e8deab8cb3b933aaf4be01af8db84e0598c578"
+    },
+    "src/pages/StockAdjustments.jsx": {
+      "bytes": 34350,
+      "sha256": "7ba6d41cb4a8ba97c2d402ad5bf21039a380fcb105f2fb8251d65737007339b3"
+    },
+    "src/services/stockAdjustmentService.js": {
+      "bytes": 44313,
+      "sha256": "2f4206998bb65629b3da62f3f548b09139078659f71a7dc2158a9099af719b2c"
+    },
+    "src/styles/StockAdjustmentHistory.css": {
+      "bytes": 9609,
+      "sha256": "5d1c7fb0137bde2d1fb08d36cc9b97ed1f15af60ddfaf71a69fa56371e8dcf18"
+    },
+    "src/styles/StockAdjustmentReview.css": {
+      "bytes": 7266,
+      "sha256": "3c8049eacb574224b9df0fd9a43282026e11c25c8d01292b51cb969fd04e94c3"
+    },
+    "src/styles/StockAdjustments.css": {
+      "bytes": 12488,
+      "sha256": "8ec2cb11506c1c0110854ca21e35ef17a35bc9c68b5b5ef5dd4d46d1caf41dcf"
+    },
+    "tests/static/phase6e.stock-adjustment-history.test.mjs": {
+      "bytes": 4162,
+      "sha256": "6ac1f84be036439f91e8838fd89167ec3224f0449992b2538d883222295eac29"
+    }
+  }
+}

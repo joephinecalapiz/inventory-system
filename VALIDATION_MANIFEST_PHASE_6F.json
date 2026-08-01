@@ -1,0 +1,54 @@
+{
+  "phase": "6F",
+  "title": "Route, Sidebar, Topbar, and Role Integration",
+  "contains_only_phase_6f_files": true,
+  "static_tests_executed": true,
+  "static_tests_passed": true,
+  "firestore_rules_modified": false,
+  "files": {
+    "README_PHASE_6F.md": {
+      "bytes": 786,
+      "sha256": "b8607a781d4c450d48be62825534748c8a8f7cdaaf04e1ada503c139accf4461"
+    },
+    "docs/PHASE_6F_ROUTE_SIDEBAR_TOPBAR_ROLES.md": {
+      "bytes": 823,
+      "sha256": "353a24c8cee70a17bc5c98eb16dd110a8917d70b6a6b8bfbf15ee3fadf3acb46"
+    },
+    "scripts/run-phase6f-tests.ps1": {
+      "bytes": 672,
+      "sha256": "a629f4e986a82359cf12129a91bbe0ad9252e6a45c43bf45b1ba0aeeae392c1c"
+    },
+    "scripts/run-phase6f-tests.sh": {
+      "bytes": 304,
+      "sha256": "cb1585528944144d2ceb4fa93c87442f1ef4a7e37a13f02fe39e447af53bec20"
+    },
+    "src/App.jsx": {
+      "bytes": 13624,
+      "sha256": "de4602f618ff4305ba48b1459718cb7ceaf0cf0759cd36bebe954e821a1b6222"
+    },
+    "src/components/layout/Sidebar.jsx": {
+      "bytes": 7259,
+      "sha256": "e9acaad7567149af31eb0a3fd1b5162080a8618b83f1cc506a43f54ff7010b48"
+    },
+    "src/components/layout/StockAdjustmentHistoryIcon.jsx": {
+      "bytes": 402,
+      "sha256": "38c3fe052018fa53a4a45208f9c2e7db947176238c455aef6153b32dcdb5bd7b"
+    },
+    "src/components/layout/StockAdjustmentIcon.jsx": {
+      "bytes": 349,
+      "sha256": "9900b01cd3a9141a889ac5b602c97a3ca91d94eee6892b6b0f0b46d6826be6e4"
+    },
+    "src/components/layout/StockAdjustmentReviewIcon.jsx": {
+      "bytes": 349,
+      "sha256": "74f4d93494e68aded10909c54d2029f35847049ac22858743aeebb9a954b78eb"
+    },
+    "src/components/layout/Topbar.jsx": {
+      "bytes": 2149,
+      "sha256": "0590330fa3777fc523bba3d80c3d5c55cb0aa33fde47ee8581c23d424255c3bb"
+    },
+    "tests/static/phase6f.navigation-integration.test.mjs": {
+      "bytes": 3961,
+      "sha256": "3c5e6958facaff5383d7f933437411bc2aebe3476e399bbf97406d938353826d"
+    }
+  }
+}

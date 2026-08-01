@@ -7,6 +7,9 @@ const PAGE_TITLES = {
 
   "/stock-in": "Stock In",
   "/stock-out": "Stock Out",
+  "/stock-adjustments": "Stock Adjustments",
+  "/stock-adjustments/review": "Stock Adjustment Review",
+  "/stock-adjustments/history": "Stock Adjustment History",
 
   "/suppliers": "Supplier Management",
   "/purchase-orders": "Purchase Orders",
