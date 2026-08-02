@@ -15,6 +15,13 @@ import { PRODUCT_STATUSES } from "../constants/products";
 import { USER_ROLES } from "../constants/roles";
 
 import {
+  INVENTORY_TRANSACTION_COLLECTION,
+  INVENTORY_TRANSACTION_TYPES,
+} from "../constants/reports";
+
+import { createInventoryTransactionData } from "../utils/reports";
+
+import {
   STOCK_OUT_LIMITS,
   STOCK_OUT_MOVEMENT_TYPE,
   STOCK_OUT_OPERATION_STATUSES,
@@ -383,6 +390,12 @@ export async function createStockOutReceipt(stockOutData) {
     preparedData.operationId,
   );
 
+  const inventoryTransactionReference = doc(
+    db,
+    INVENTORY_TRANSACTION_COLLECTION,
+    preparedData.operationId,
+  );
+
   try {
     /*
      * Keep the read operations outside the atomic
@@ -513,6 +526,38 @@ export async function createStockOutReceipt(stockOutData) {
       movementData.remarks = preparedData.remarks;
     }
 
+    const inventoryTransactionData = createInventoryTransactionData({
+      transactionType: INVENTORY_TRANSACTION_TYPES.STOCK_OUT,
+      referenceNumber: preparedData.referenceNumber || preparedData.operationId,
+      product: {
+        id: preparedData.productId,
+        ...product,
+        name: productName,
+        sku: productSku,
+      },
+      user: {
+        uid: currentUser.userId,
+        displayName: currentUser.displayName,
+        role: currentUser.role,
+      },
+      quantityBefore: previousQuantity,
+      quantityChanged: -preparedData.quantityReleased,
+      quantityAfter: newQuantity,
+      unitCost,
+      relatedDocumentId: preparedData.operationId,
+      relatedDocumentType: "STOCK_OUT_OPERATION",
+      reason: preparedData.reason,
+      remarks: preparedData.remarks,
+      transactionDate: preparedData.dateReleased,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+      metadata: {
+        movementId: movementReference.id,
+        destination: preparedData.destination,
+        dateReleasedKey: preparedData.dateReleasedKey,
+      },
+    });
+
     const operationData = {
       operationId: preparedData.operationId,
       status: STOCK_OUT_OPERATION_STATUSES.COMPLETED,
@@ -561,6 +606,8 @@ export async function createStockOutReceipt(stockOutData) {
     });
 
     batch.set(movementReference, movementData);
+
+    batch.set(inventoryTransactionReference, inventoryTransactionData);
 
     batch.set(operationReference, operationData);
 

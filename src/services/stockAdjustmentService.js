@@ -16,6 +16,13 @@ import { PRODUCT_STATUSES } from "../constants/products";
 import { USER_STATUSES } from "../constants/roles";
 
 import {
+  INVENTORY_TRANSACTION_COLLECTION,
+  INVENTORY_TRANSACTION_TYPES,
+} from "../constants/reports";
+
+import { createInventoryTransactionData } from "../utils/reports";
+
+import {
   STOCK_ADJUSTMENT_DIRECTIONS,
   STOCK_ADJUSTMENT_LIMITS,
   STOCK_ADJUSTMENT_MOVEMENT_REASON,
@@ -987,6 +994,12 @@ export async function approveAndPostStockAdjustment({
 
   const movementReference = doc(db, "stockMovements", preparedOperationId);
 
+  const inventoryTransactionReference = doc(
+    db,
+    INVENTORY_TRANSACTION_COLLECTION,
+    preparedOperationId,
+  );
+
   let result = null;
 
   await runTransaction(db, async (transaction) => {
@@ -1137,6 +1150,54 @@ export async function approveAndPostStockAdjustment({
 
     addOptionalProductSnapshots(movementData, requestData);
 
+    const inventoryTransactionType =
+      requestData.quantityDifference > 0
+        ? INVENTORY_TRANSACTION_TYPES.ADJUSTMENT_INCREASE
+        : INVENTORY_TRANSACTION_TYPES.ADJUSTMENT_DECREASE;
+
+    const inventoryTransactionData = createInventoryTransactionData({
+      transactionType: inventoryTransactionType,
+      referenceNumber:
+        requestData.referenceNumber ||
+        requestData.adjustmentId ||
+        preparedOperationId,
+      product: {
+        id: requestData.productId,
+        ...product,
+        name: requestData.productName,
+        sku: requestData.productSku,
+      },
+      user: {
+        uid: reviewer.userId,
+        displayName: reviewer.displayName,
+        role: reviewer.role,
+      },
+      approver: {
+        uid: reviewer.userId,
+        displayName: reviewer.displayName,
+        role: reviewer.role,
+      },
+      quantityBefore: previousQuantity,
+      quantityChanged: requestData.quantityDifference,
+      quantityAfter: newQuantity,
+      unitCost,
+      relatedDocumentId: requestData.adjustmentId,
+      relatedDocumentType: "STOCK_ADJUSTMENT_REQUEST",
+      reason: requestData.reason,
+      remarks: requestData.remarks,
+      transactionDate: requestData.countDate ?? postedAt,
+      createdAt: postedAt,
+      updatedAt: postedAt,
+      metadata: {
+        movementId: preparedOperationId,
+        operationId: preparedOperationId,
+        adjustmentDirection: direction,
+        countDateKey: requestData.countDateKey ?? "",
+        requestedBy: requestData.requestedBy,
+        requestedByName: requestData.requestedByName,
+      },
+    });
+
     const operationData = {
       operationId: preparedOperationId,
       operationType: STOCK_ADJUSTMENT_OPERATION_TYPES.POST_ADJUSTMENT,
@@ -1175,6 +1236,8 @@ export async function approveAndPostStockAdjustment({
     transaction.update(requestReference, requestUpdate);
 
     transaction.set(movementReference, movementData);
+
+    transaction.set(inventoryTransactionReference, inventoryTransactionData);
 
     transaction.set(operationReference, operationData);
 

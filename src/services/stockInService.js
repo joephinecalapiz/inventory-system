@@ -15,6 +15,13 @@ import { PRODUCT_STATUSES } from "../constants/products";
 import { USER_ROLES } from "../constants/roles";
 
 import {
+  INVENTORY_TRANSACTION_COLLECTION,
+  INVENTORY_TRANSACTION_TYPES,
+} from "../constants/reports";
+
+import { createInventoryTransactionData } from "../utils/reports";
+
+import {
   MANUAL_STOCK_IN_REASON_OPTIONS,
   STOCK_IN_LIMITS,
   STOCK_MOVEMENT_TYPES,
@@ -303,6 +310,12 @@ export async function createStockInReceipt(stockInData) {
     preparedData.operationId,
   );
 
+  const inventoryTransactionReference = doc(
+    db,
+    INVENTORY_TRANSACTION_COLLECTION,
+    preparedData.operationId,
+  );
+
   let receiptResult = null;
 
   try {
@@ -508,6 +521,46 @@ export async function createStockInReceipt(stockInData) {
         movementData.remarks = preparedData.remarks;
       }
 
+      const reportTransactionType =
+        preparedData.reason === STOCK_IN_REASONS.OPENING_BALANCE
+          ? INVENTORY_TRANSACTION_TYPES.OPENING_STOCK
+          : preparedData.reason === STOCK_IN_REASONS.RETURNED_STOCK
+            ? INVENTORY_TRANSACTION_TYPES.RETURN_IN
+            : INVENTORY_TRANSACTION_TYPES.STOCK_IN;
+
+      const inventoryTransactionData = createInventoryTransactionData({
+        transactionType: reportTransactionType,
+        referenceNumber:
+          preparedData.referenceNumber || preparedData.operationId,
+        product: {
+          id: preparedData.productId,
+          ...product,
+          name: productName,
+          sku: productSku,
+        },
+        user: {
+          uid: currentUser.userId,
+          displayName: currentUser.displayName,
+          role: currentUser.role,
+        },
+        quantityBefore: previousQuantity,
+        quantityChanged: preparedData.quantityReceived,
+        quantityAfter: newQuantity,
+        unitCost: preparedData.unitCost,
+        relatedDocumentId: preparedData.operationId,
+        relatedDocumentType: "STOCK_IN_OPERATION",
+        reason: preparedData.reason,
+        remarks: preparedData.remarks,
+        transactionDate: preparedData.dateReceived,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        metadata: {
+          movementId: movementReference.id,
+          source: preparedData.source,
+          dateReceivedKey: preparedData.dateReceivedInput,
+        },
+      });
+
       const productUpdate = {
         quantity: newQuantity,
 
@@ -544,6 +597,8 @@ export async function createStockInReceipt(stockInData) {
       transaction.update(productReference, productUpdate);
 
       transaction.set(movementReference, movementData);
+
+      transaction.set(inventoryTransactionReference, inventoryTransactionData);
 
       transaction.set(operationReference, {
         operationId: preparedData.operationId,

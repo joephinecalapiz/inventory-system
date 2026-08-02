@@ -17,6 +17,13 @@ import { USER_ROLES } from "../constants/roles";
 import { PRODUCT_STATUSES } from "../constants/products";
 
 import {
+  INVENTORY_TRANSACTION_COLLECTION,
+  INVENTORY_TRANSACTION_TYPES,
+} from "../constants/reports";
+
+import { createInventoryTransactionData } from "../utils/reports";
+
+import {
   STOCK_IN_LIMITS,
   STOCK_IN_REASONS,
   STOCK_MOVEMENT_TYPES,
@@ -1140,6 +1147,12 @@ export async function postGoodsReceipt(goodsReceiptData) {
           preparedItem.productId,
         );
 
+        const inventoryTransactionReference = doc(
+          db,
+          INVENTORY_TRANSACTION_COLLECTION,
+          movementReference.id,
+        );
+
         transaction.update(itemReference, {
           receivedQuantity: nextItemReceivedQuantity,
 
@@ -1197,29 +1210,71 @@ export async function postGoodsReceipt(goodsReceiptData) {
 
         transaction.update(productReference, productUpdate);
 
-        transaction.set(
-          movementReference,
-          createStockMovementData({
-            product,
+        const stockMovementData = createStockMovementData({
+          product,
 
-            purchaseOrder,
+          purchaseOrder,
 
-            goodsReceiptId: goodsReceiptReference.id,
+          goodsReceiptId: goodsReceiptReference.id,
 
-            goodsReceiptNumber,
+          goodsReceiptNumber,
 
-            preparedData,
+          preparedData,
 
-            preparedItem,
+          preparedItem,
 
-            previousQuantity: product.previousQuantity,
+          previousQuantity: product.previousQuantity,
 
-            newQuantity: newProductQuantity,
+          newQuantity: newProductQuantity,
 
-            currentUser,
+          currentUser,
 
+          movementId: movementReference.id,
+        });
+
+        const inventoryTransactionData = createInventoryTransactionData({
+          transactionType: INVENTORY_TRANSACTION_TYPES.GOODS_RECEIPT,
+          referenceNumber: goodsReceiptNumber,
+          product: {
+            id: preparedItem.productId,
+            ...product,
+            name: product.productName,
+            sku: product.productSku,
+          },
+          user: {
+            uid: currentUser.userId,
+            displayName: currentUser.displayName,
+            role: currentUser.role,
+          },
+          quantityBefore: product.previousQuantity,
+          quantityChanged: preparedItem.quantityReceived,
+          quantityAfter: newProductQuantity,
+          unitCost: preparedItem.unitCost,
+          supplier: {
+            id: header.supplierId,
+            name: header.supplierName,
+          },
+          relatedDocumentId: goodsReceiptReference.id,
+          relatedDocumentType: "GOODS_RECEIPT",
+          reason: STOCK_IN_REASONS.PURCHASE_RECEIPT,
+          remarks: preparedData.remarks,
+          transactionDate: preparedData.dateReceived,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+          metadata: {
             movementId: movementReference.id,
-          }),
+            goodsReceiptNumber,
+            purchaseOrderId: purchaseOrder.id,
+            poNumber: header.poNumber,
+            supplierReferenceNumber: preparedData.referenceNumber,
+          },
+        });
+
+        transaction.set(movementReference, stockMovementData);
+
+        transaction.set(
+          inventoryTransactionReference,
+          inventoryTransactionData,
         );
 
         transaction.set(receiptItemReference, {
