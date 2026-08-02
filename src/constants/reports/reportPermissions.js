@@ -1,5 +1,5 @@
-import { USER_ROLES } from "../roles";
-import { REPORT_TYPES } from "./reportTypes";
+import { USER_ROLES } from "../roles.js";
+import { REPORT_TYPES } from "./reportTypes.js";
 
 export const REPORT_ACTIONS = Object.freeze({
   VIEW: "VIEW",

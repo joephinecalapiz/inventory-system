@@ -7,6 +7,7 @@
     "test:phase5g:static": "node --test tests/static/phase5g.source-regression.test.mjs",
     "test:phase5g:rules": "firebase emulators:exec --only firestore --project demo-inventory-phase5g \"node --test tests/firestore/phase5g.stockout.rules.test.mjs\"",
     "test:phase5g": "npm run lint && npm run build && npm run test:phase5g:static && npm run test:phase5g:rules",
+    "test:phase7a10:static": "node --test tests/static/phase7a10.reporting-foundation.test.mjs",
     "lint": "oxlint src",
     "build": "vite build",
     "dev": "vite",
