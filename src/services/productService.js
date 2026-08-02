@@ -12,6 +12,11 @@ import {
 import { auth, db } from "../firebase/firebase";
 
 import {
+  calculateProductStockStatus,
+  hasCorrectProductStockStatus,
+} from "../constants/stockStatus";
+
+import {
   PRODUCT_LIMITS,
   PRODUCT_STATUSES,
   isValidMoneyValue,
@@ -148,6 +153,10 @@ export function inspectProductSafeMigration(product) {
 
   if (!product.updatedAt) {
     issues.push("Missing updated-at audit field.");
+  }
+
+  if (!hasCorrectProductStockStatus(product)) {
+    issues.push("Missing or incorrect product stock status.");
   }
 
   return {
@@ -448,6 +457,11 @@ export async function migrateLegacyProductSafeFields(products) {
 
     const stockMovementCount = movementCounts.get(product.id) ?? 0;
 
+    const stockStatus = calculateProductStockStatus(
+      Number(product.quantity ?? 0),
+      Number(product.reorderLevel ?? 0),
+    );
+
     preparedUpdates.push({
       productId: product.id,
 
@@ -470,7 +484,9 @@ export async function migrateLegacyProductSafeFields(products) {
 
         stockMovementCount,
 
-        legacyMigrationVersion: 1,
+        stockStatus,
+
+        legacyMigrationVersion: 2,
 
         legacyMigratedBy: currentUserId,
 
@@ -555,6 +571,8 @@ export async function createProduct(productData) {
   const sourceProductId = prepareOptionalSourceProductId(
     productData?.sourceProductId ?? productData?.selectedProductId,
   );
+
+  const stockStatus = calculateProductStockStatus(quantity, reorderLevel);
 
   const categoryReference = doc(db, "categories", categoryCode);
 
@@ -768,6 +786,8 @@ export async function createProduct(productData) {
 
             reorderLevel,
 
+            stockStatus,
+
             barcode: generatedBarcode,
 
             barcodeSequence: nextSequence,
@@ -831,6 +851,8 @@ export async function createProduct(productData) {
       costPrice,
 
       sellingPrice,
+
+      stockStatus,
 
       status: PRODUCT_STATUSES.ACTIVE,
     };
@@ -1188,6 +1210,11 @@ export async function updateProductMasterData(productId, productData) {
             PRODUCT_STATUSES.ACTIVE,
         );
 
+        const stockStatus = calculateProductStockStatus(
+          Number(existingProduct.quantity ?? 0),
+          reorderLevel,
+        );
+
         transaction.update(
           productReference,
 
@@ -1203,6 +1230,8 @@ export async function updateProductMasterData(productId, productData) {
             price: sellingPrice,
 
             reorderLevel,
+
+            stockStatus,
 
             status,
 
@@ -1224,6 +1253,8 @@ export async function updateProductMasterData(productId, productData) {
           sellingPrice,
 
           reorderLevel,
+
+          stockStatus,
 
           status,
         };
@@ -1435,11 +1466,18 @@ export async function adjustProductStock(productId, movementType, amount) {
           movementData.unitAbbreviation = product.unitAbbreviation;
         }
 
+        const stockStatus = calculateProductStockStatus(
+          newQuantity,
+          Number(product.reorderLevel ?? 0),
+        );
+
         transaction.update(
           productReference,
 
           {
             quantity: newQuantity,
+
+            stockStatus,
 
             hasStockHistory: true,
 

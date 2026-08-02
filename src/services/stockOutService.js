@@ -14,6 +14,8 @@ import { PRODUCT_STATUSES } from "../constants/products";
 
 import { USER_ROLES } from "../constants/roles";
 
+import { calculateProductStockStatus } from "../constants/stockStatus";
+
 import {
   INVENTORY_TRANSACTION_COLLECTION,
   INVENTORY_TRANSACTION_TYPES,
@@ -589,10 +591,16 @@ export async function createStockOutReceipt(stockOutData) {
      * so a concurrent stock change causes this batch to
      * fail instead of overwriting newer inventory.
      */
+    const stockStatus = calculateProductStockStatus(
+      newQuantity,
+      Number(product.reorderLevel ?? 0),
+    );
+
     const batch = writeBatch(db);
 
     batch.update(productReference, {
       quantity: newQuantity,
+      stockStatus,
       hasStockHistory: true,
       stockMovementCount: previousMovementCount + 1,
       lastStockMovementId: movementReference.id,

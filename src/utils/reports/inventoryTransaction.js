@@ -2,6 +2,9 @@ import {
   INVENTORY_TRANSACTION_DIRECTIONS,
   INVENTORY_TRANSACTION_SCHEMA_VERSION,
   INVENTORY_TRANSACTION_TYPES,
+  isValidRelatedDocumentType,
+  normalizeRelatedDocumentId,
+  resolveInventoryReferenceNumber,
   getInventoryTransactionDirection,
   isValidInventoryTransactionType,
 } from "../../constants/reports";
@@ -221,10 +224,26 @@ export function createInventoryTransactionData({
     throw new Error("Invalid inventory transaction type.");
   }
 
-  const normalizedReferenceNumber = normalizeUppercase(referenceNumber);
+  const normalizedReferenceNumber = resolveInventoryReferenceNumber({
+    referenceNumber,
+    fallbackReference: relatedDocumentId,
+  });
 
   if (!normalizedReferenceNumber) {
-    throw new Error("Reference number is required.");
+    throw new Error("Reference number or related document ID is required.");
+  }
+
+  const normalizedRelatedDocumentId =
+    normalizeRelatedDocumentId(relatedDocumentId);
+
+  const normalizedRelatedDocumentType =
+    normalizeNullableText(relatedDocumentType);
+
+  if (
+    normalizedRelatedDocumentType &&
+    !isValidRelatedDocumentType(normalizedRelatedDocumentType)
+  ) {
+    throw new Error("Related document type is invalid.");
   }
 
   const productSnapshot = createProductSnapshot(product);
@@ -298,8 +317,8 @@ export function createInventoryTransactionData({
 
     ...createSupplierSnapshot(supplier ?? {}),
 
-    relatedDocumentId: normalizeNullableText(relatedDocumentId),
-    relatedDocumentType: normalizeNullableText(relatedDocumentType),
+    relatedDocumentId: normalizedRelatedDocumentId,
+    relatedDocumentType: normalizedRelatedDocumentType,
 
     reason: normalizeText(reason),
     remarks: normalizeText(remarks),

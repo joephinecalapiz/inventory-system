@@ -15,6 +15,8 @@ import { PRODUCT_STATUSES } from "../constants/products";
 
 import { USER_STATUSES } from "../constants/roles";
 
+import { calculateProductStockStatus } from "../constants/stockStatus";
+
 import {
   INVENTORY_TRANSACTION_COLLECTION,
   INVENTORY_TRANSACTION_TYPES,
@@ -1218,8 +1220,14 @@ export async function approveAndPostStockAdjustment({
       createdAt: postedAt,
     };
 
+    const stockStatus = calculateProductStockStatus(
+      newQuantity,
+      Number(product.reorderLevel ?? 0),
+    );
+
     transaction.update(productReference, {
       quantity: newQuantity,
+      stockStatus,
       hasStockHistory: true,
       stockMovementCount: getMovementCount(product) + 1,
       lastStockMovementId: preparedOperationId,

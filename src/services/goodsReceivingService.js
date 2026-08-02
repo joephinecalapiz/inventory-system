@@ -16,6 +16,8 @@ import { USER_ROLES } from "../constants/roles";
 
 import { PRODUCT_STATUSES } from "../constants/products";
 
+import { calculateProductStockStatus } from "../constants/stockStatus";
+
 import {
   INVENTORY_TRANSACTION_COLLECTION,
   INVENTORY_TRANSACTION_TYPES,
@@ -1175,8 +1177,15 @@ export async function postGoodsReceipt(goodsReceiptData) {
           updatedAt: serverTimestamp(),
         });
 
+        const stockStatus = calculateProductStockStatus(
+          newProductQuantity,
+          Number(product.reorderLevel ?? 0),
+        );
+
         const productUpdate = {
           quantity: newProductQuantity,
+
+          stockStatus,
 
           hasStockHistory: true,
 
