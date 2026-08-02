@@ -14,6 +14,7 @@ import GoodsReceiving from "./pages/GoodsReceiving";
 import GoodsReceiptHistory from "./pages/GoodsReceiptHistory";
 import Inventory from "./pages/Inventory";
 import PurchaseOrders from "./pages/PurchaseOrders";
+import ReorderManagement from "./pages/ReorderManagement";
 import StockIn from "./pages/StockIn";
 import StockOut from "./pages/StockOut";
 import StockAdjustmentHistory from "./pages/StockAdjustmentHistory";
@@ -330,6 +331,23 @@ function App() {
               ]}
             >
               <PurchaseOrders currentUserRole={userProfile.role} />
+            </RequireRole>
+          }
+        />
+
+        <Route
+          path="/reorder-management"
+          element={
+            <RequireRole
+              userProfile={userProfile}
+              allowedRoles={[
+                USER_ROLES.SUPERADMIN,
+                USER_ROLES.ADMIN,
+                USER_ROLES.INVENTORY_STAFF,
+                USER_ROLES.AUDITOR,
+              ]}
+            >
+              <ReorderManagement currentUserRole={userProfile.role} />
             </RequireRole>
           }
         />

@@ -11,6 +11,7 @@ import {
 } from "../constants/dashboard/index.js";
 
 import {
+  buildDashboardMovementAnalytics,
   buildDashboardStockAlertWidgets,
   buildDashboardSummaryFromSources,
   buildDashboardTrendAnalytics,
@@ -100,6 +101,12 @@ function buildDashboardPayload({ sources, loading, errors, referenceDate }) {
     referenceDate,
   });
 
+  const movementAnalytics = buildDashboardMovementAnalytics({
+    products: sources.products,
+    transactions: sources.inventoryTransactions,
+    referenceDate,
+  });
+
   const state = getDashboardState(loading, errors, summary);
 
   return {
@@ -108,6 +115,7 @@ function buildDashboardPayload({ sources, loading, errors, referenceDate }) {
     stockAlerts,
     valuation,
     trends,
+    movementAnalytics,
     loading: { ...loading },
     errors: { ...errors },
     isLoading: state === DASHBOARD_DATA_STATES.LOADING,
@@ -288,6 +296,11 @@ export function getEmptyDashboardPayload() {
     stockAlerts: buildDashboardStockAlertWidgets([]),
     valuation: buildInventoryValuationSummary([]),
     trends: buildDashboardTrendAnalytics({
+      transactions: [],
+      referenceDate: new Date(),
+    }),
+    movementAnalytics: buildDashboardMovementAnalytics({
+      products: [],
       transactions: [],
       referenceDate: new Date(),
     }),

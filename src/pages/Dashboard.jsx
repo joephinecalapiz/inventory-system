@@ -1,86 +1,73 @@
 import { useEffect, useMemo, useState } from "react";
-import "../styles/Dashboard.css";
-import { subscribeToProducts } from "../services/productService";
-import { subscribeToSalesMovements } from "../services/dashboardService";
 
-const COLORS = [
-  "#16a34a",
-  "#2563eb",
-  "#7c3aed",
-  "#f59e0b",
-  "#f97316",
-  "#0891b2",
-];
+import "../styles/Dashboard.css";
+
+import {
+  getEmptyDashboardPayload,
+  subscribeToDashboardSummary,
+} from "../services/dashboardService";
 
 function Dashboard() {
-  const [products, setProducts] = useState([]);
-  const [sales, setSales] = useState([]);
-  const [loadingProducts, setLoadingProducts] = useState(true);
-  const [loadingSales, setLoadingSales] = useState(true);
-  const [errorMessage, setErrorMessage] = useState("");
+  const [dashboard, setDashboard] = useState(getEmptyDashboardPayload());
 
   useEffect(() => {
-    const unsubscribeProducts = subscribeToProducts(
-      (items) => {
-        setProducts(items);
-        setLoadingProducts(false);
-      },
-      (error) => {
-        console.error(error);
-        setErrorMessage(error?.message || "Unable to load products.");
-        setLoadingProducts(false);
-      },
-    );
-
-    const unsubscribeSales = subscribeToSalesMovements(
-      (items) => {
-        setSales(items);
-        setLoadingSales(false);
-      },
-      (error) => {
-        console.error(error);
-        setErrorMessage(error?.message || "Unable to load sales.");
-        setLoadingSales(false);
+    const unsubscribe = subscribeToDashboardSummary(
+      setDashboard,
+      (error, context) => {
+        console.error(
+          "Unable to load dashboard source:",
+          context?.source,
+          error,
+        );
       },
     );
 
-    return () => {
-      unsubscribeProducts();
-      unsubscribeSales();
-    };
+    return unsubscribe;
   }, []);
 
-  const data = useMemo(
-    () => buildDashboardData(products, sales),
-    [products, sales],
+  const {
+    summary,
+    stockAlerts,
+    valuation,
+    trends,
+    movementAnalytics,
+    isLoading,
+    isPartial,
+    hasError,
+    failedSources,
+  } = dashboard;
+
+  const today = useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-PH", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      }).format(new Date()),
+    [],
   );
 
-  const today = new Intl.DateTimeFormat("en-PH", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  }).format(new Date());
-
-  if (loadingProducts || loadingSales) {
+  if (isLoading) {
     return (
-      <main className="enhanced-dashboard">
-        <div className="dashboard-loading">
+      <main className="inventory-dashboard">
+        <div className="dashboard-state-panel">
           <div className="dashboard-loader" />
-          <h3>Loading dashboard...</h3>
-          <p>Fetching inventory and stock movement data from Firebase.</p>
+          <h2>Loading dashboard</h2>
+          <p>Gathering inventory, purchasing, and stock movement data.</p>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="enhanced-dashboard">
-      <section className="dashboard-welcome">
+    <main className="inventory-dashboard">
+      <section className="dashboard-hero">
         <div>
           <p className="dashboard-eyebrow">Inventory overview</p>
-
+          <h1>Dashboard</h1>
           <span>
-            Welcome back! Here is what is happening with your inventory today.
+            Monitor stock levels, movement activity, purchasing, and inventory
+            value.
           </span>
         </div>
 
@@ -90,532 +77,495 @@ function Dashboard() {
         </div>
       </section>
 
-      {errorMessage && (
-        <div className="dashboard-error" role="alert">
-          {errorMessage}
-        </div>
+      {(isPartial || hasError) && (
+        <section className="dashboard-notice" role="status">
+          <div>
+            <strong>Some dashboard data is temporarily unavailable.</strong>
+            <span>
+              Available sections are still shown. Failed source
+              {failedSources.length === 1 ? "" : "s"}:{" "}
+              {failedSources.join(", ") || "Unknown"}.
+            </span>
+          </div>
+        </section>
       )}
 
-      <section className="dashboard-metric-grid">
-        <MetricCard
-          label="Total Products"
-          value={data.totalProducts}
-          description="All products in inventory"
-          tone="green"
+      <section className="dashboard-summary-grid">
+        <SummaryCard
+          label="Active Products"
+          value={formatNumber(summary.totalActiveProducts)}
+          description="Products currently available for inventory use"
           icon={<CubeIcon />}
         />
-        <MetricCard
+        <SummaryCard
           label="Available Stock"
-          value={data.totalStock}
-          description="Items currently in stock"
-          tone="blue"
+          value={formatNumber(summary.totalStockQuantity)}
+          description="Combined quantity across active products"
           icon={<DatabaseIcon />}
         />
-        <MetricCard
+        <SummaryCard
           label="Low Stock"
-          value={data.lowStockCount}
-          description="Items running low"
-          tone="orange"
+          value={formatNumber(summary.lowStockProducts)}
+          description="Products at or below reorder level"
           icon={<WarningIcon />}
+          status="warning"
         />
-        <MetricCard
+        <SummaryCard
           label="Out of Stock"
-          value={data.outOfStockCount}
-          description="Items unavailable"
-          tone="red"
+          value={formatNumber(summary.outOfStockProducts)}
+          description="Products with zero quantity"
           icon={<OutIcon />}
+          status="danger"
         />
-        <MetricCard
+        <SummaryCard
           label="Inventory Value"
-          value={formatCurrency(data.inventoryValue)}
-          description="Total inventory value"
-          tone="purple"
+          value={formatCurrency(valuation.totalInventoryValue)}
+          description={`${formatNumber(
+            valuation.valuationCoveragePercent,
+          )}% cost coverage`}
           icon={<MoneyIcon />}
+          wide
         />
       </section>
 
-      <section className="dashboard-sales-grid">
-        <SalesCard
-          title="Daily Sales"
-          amount={data.dailyTotal}
-          subtitle="Today"
-          tone="green"
-        >
-          <BarChart
-            labels={data.daily.labels}
-            values={data.daily.values}
-            tone="green"
-          />
-        </SalesCard>
-
-        <SalesCard
-          title="Monthly Sales"
-          amount={data.monthlyTotal}
-          subtitle="This month"
-          tone="blue"
-        >
-          <LineChart
-            labels={data.monthly.labels}
-            values={data.monthly.values}
-            tone="blue"
-          />
-        </SalesCard>
-
-        <SalesCard
-          title="Yearly Sales"
-          amount={data.yearlyTotal}
-          subtitle="This year"
-          tone="purple"
-        >
-          <BarChart
-            labels={data.yearly.labels}
-            values={data.yearly.values}
-            tone="purple"
-          />
-        </SalesCard>
+      <section className="dashboard-operation-grid">
+        <OperationCard
+          label="Received This Month"
+          value={summary.stockReceivedThisMonth}
+          description="Inbound quantity posted"
+          direction="in"
+        />
+        <OperationCard
+          label="Released This Month"
+          value={summary.stockReleasedThisMonth}
+          description="Outbound quantity posted"
+          direction="out"
+        />
+        <OperationCard
+          label="Pending Purchase Orders"
+          value={summary.pendingPurchaseOrders}
+          description="Orders awaiting completion"
+        />
+        <OperationCard
+          label="Pending Goods Receipts"
+          value={summary.pendingGoodsReceipts}
+          description="Receipts not yet finalized"
+        />
+        <OperationCard
+          label="Pending Adjustments"
+          value={summary.pendingStockAdjustments}
+          description="Requests awaiting review"
+        />
       </section>
 
-      <section className="dashboard-bottom-grid">
-        <article className="dashboard-panel">
-          <div className="dashboard-panel-heading">
-            <div>
-              <p className="dashboard-panel-eyebrow">Sales overview</p>
-              <h3>Sales by Category</h3>
-            </div>
-            <span>This Year</span>
-          </div>
+      <section className="dashboard-main-grid">
+        <article className="dashboard-panel dashboard-panel-wide">
+          <PanelHeading
+            eyebrow="Movement trend"
+            title="Stock In vs Stock Out"
+            meta="Last 30 days"
+          />
 
-          <div className="dashboard-category-content">
-            <DonutChart items={data.categorySales} total={data.yearlyTotal} />
+          <MovementChart
+            labels={trends.last30Days.labels}
+            stockIn={trends.last30Days.stockIn}
+            stockOut={trends.last30Days.stockOut}
+          />
 
-            <div className="dashboard-category-list">
-              {data.categorySales.length === 0 ? (
-                <EmptyState text="No Stock Out transactions recorded yet." />
-              ) : (
-                data.categorySales.slice(0, 6).map((item, index) => (
-                  <div className="dashboard-category-row" key={item.name}>
-                    <span
-                      className="dashboard-category-dot"
-                      style={{ background: COLORS[index % COLORS.length] }}
-                    />
-                    <strong>{item.name}</strong>
-                    <span>{formatCurrency(item.amount)}</span>
-                    <small>
-                      {data.yearlyTotal > 0
-                        ? `${Math.round((item.amount / data.yearlyTotal) * 100)}%`
-                        : "0%"}
-                    </small>
-                  </div>
-                ))
-              )}
-            </div>
+          <div className="dashboard-chart-legend">
+            <span>
+              <i className="dashboard-legend-in" />
+              Stock In
+            </span>
+            <span>
+              <i className="dashboard-legend-out" />
+              Stock Out
+            </span>
           </div>
         </article>
 
         <article className="dashboard-panel">
-          <div className="dashboard-panel-heading">
-            <div>
-              <p className="dashboard-panel-eyebrow">Latest activity</p>
-              <h3>Recent Sales</h3>
-            </div>
-            <span>{data.recent.length} records</span>
-          </div>
+          <PanelHeading
+            eyebrow="Trend comparison"
+            title="Movement Performance"
+            meta="Current period"
+          />
 
-          {data.recent.length === 0 ? (
-            <EmptyState text="Stock Out transactions will appear here." />
-          ) : (
-            <div className="dashboard-recent-table-wrapper">
-              <table className="dashboard-recent-table">
-                <thead>
-                  <tr>
-                    <th>Product</th>
-                    <th>Type</th>
-                    <th>Quantity</th>
-                    <th>Amount</th>
-                    <th>Time</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {data.recent.map((sale) => (
-                    <tr key={sale.id}>
-                      <td>
-                        <strong>{sale.productName}</strong>
-                        <span>{sale.productSku || "No SKU"}</span>
-                      </td>
-                      <td>
-                        <span className="dashboard-sale-badge">Sale</span>
-                      </td>
-                      <td>{sale.quantity}</td>
-                      <td>{formatCurrency(sale.amount)}</td>
-                      <td>{formatTime(sale.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <div className="dashboard-trend-stack">
+            <TrendCard
+              label="This Month"
+              trend={trends.movementTrendThisMonth}
+            />
+            <TrendCard
+              label="Last 7 Days"
+              trend={trends.movementTrendLast7Days}
+            />
+          </div>
         </article>
       </section>
 
-      <p className="dashboard-sales-note">
-        For now, every Stock Out movement is treated as a sale. You can replace
-        this with a dedicated Sales module later.
-      </p>
+      <section className="dashboard-main-grid">
+        <article className="dashboard-panel">
+          <PanelHeading
+            eyebrow="Stock alerts"
+            title="Reorder Attention"
+            meta={`${stockAlerts.counts.totalAlerts} alerts`}
+          />
+
+          <StockAlertList
+            lowStock={stockAlerts.lowStockPreview}
+            outOfStock={stockAlerts.outOfStockPreview}
+          />
+        </article>
+
+        <article className="dashboard-panel">
+          <PanelHeading
+            eyebrow="Inventory value"
+            title="Value by Category"
+            meta={`${valuation.categoryValuation.length} categories`}
+          />
+
+          <CategoryValueList
+            items={valuation.categoryValuation.slice(0, 8)}
+            total={valuation.totalInventoryValue}
+          />
+        </article>
+      </section>
+
+      <section className="dashboard-main-grid">
+        <article className="dashboard-panel">
+          <PanelHeading
+            eyebrow="Product activity"
+            title="Most Issued Products"
+            meta="By quantity"
+          />
+
+          <MostIssuedList items={movementAnalytics.mostIssuedProducts} />
+        </article>
+
+        <article className="dashboard-panel dashboard-panel-wide">
+          <PanelHeading
+            eyebrow="Latest activity"
+            title="Recent Stock Movements"
+            meta={`${movementAnalytics.recentStockMovements.length} records`}
+          />
+
+          <RecentMovementTable items={movementAnalytics.recentStockMovements} />
+        </article>
+      </section>
     </main>
   );
 }
 
-function MetricCard({ label, value, description, tone, icon }) {
+function SummaryCard({
+  label,
+  value,
+  description,
+  icon,
+  status = "default",
+  wide = false,
+}) {
   return (
-    <article className={`dashboard-metric-card dashboard-theme-${tone}`}>
+    <article
+      className={[
+        "dashboard-summary-card",
+        `dashboard-summary-${status}`,
+        wide ? "dashboard-summary-wide" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
       <div>
         <span>{label}</span>
         <strong>{value}</strong>
         <p>{description}</p>
       </div>
-      <div className="dashboard-metric-icon">{icon}</div>
+      <div className="dashboard-summary-icon">{icon}</div>
     </article>
   );
 }
 
-function SalesCard({ title, amount, subtitle, tone, children }) {
+function OperationCard({ label, value, description, direction = "neutral" }) {
   return (
-    <article className={`dashboard-sales-card dashboard-theme-${tone}`}>
-      <div className="dashboard-sales-heading">
-        <div>
-          <span>{title}</span>
-          <strong>{formatCurrency(amount)}</strong>
-          <p>{subtitle}</p>
-        </div>
-        <div className="dashboard-sales-icon">
-          <CalendarIcon />
-        </div>
-      </div>
-      <div className="dashboard-sales-pill">Stock Out value</div>
-      <div className="dashboard-chart-container">{children}</div>
+    <article className="dashboard-operation-card">
+      <div className={`dashboard-operation-indicator ${direction}`} />
+      <span>{label}</span>
+      <strong>{formatNumber(value)}</strong>
+      <p>{description}</p>
     </article>
   );
 }
 
-function BarChart({ values, labels, tone }) {
-  const width = 620;
-  const height = 220;
-  const chartTop = 14;
-  const chartBottom = 36;
-  const chartHeight = height - chartTop - chartBottom;
-  const max = Math.max(...values, 1);
-  const gap = 5;
-  const barWidth = (width - gap * (values.length - 1)) / values.length;
-
+function PanelHeading({ eyebrow, title, meta }) {
   return (
-    <svg
-      className={`dashboard-chart dashboard-chart-${tone}`}
-      viewBox={`0 0 ${width} ${height}`}
-    >
-      {[0, 1, 2, 3].map((line) => {
-        const y = chartTop + (chartHeight / 3) * line;
-        return (
-          <line
-            key={line}
-            className="dashboard-chart-grid-line"
-            x1="0"
-            x2={width}
-            y1={y}
-            y2={y}
-          />
-        );
-      })}
-
-      {values.map((value, index) => {
-        const barHeight = (value / max) * chartHeight;
-        return (
-          <rect
-            key={`${labels[index]}-${index}`}
-            className="dashboard-chart-bar"
-            x={index * (barWidth + gap)}
-            y={chartTop + chartHeight - barHeight}
-            width={Math.max(barWidth, 3)}
-            height={Math.max(barHeight, 2)}
-            rx="3"
-          />
-        );
-      })}
-
-      {labels.map((label, index) => {
-        const show =
-          labels.length <= 12 ||
-          index === 0 ||
-          index === labels.length - 1 ||
-          index % 5 === 0;
-        if (!show) return null;
-        const x = index * (barWidth + gap) + barWidth / 2;
-        return (
-          <text
-            key={`${label}-label`}
-            className="dashboard-chart-label"
-            x={x}
-            y={height - 8}
-            textAnchor="middle"
-          >
-            {label}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
-
-function LineChart({ values, labels, tone }) {
-  const width = 620;
-  const height = 220;
-  const chartTop = 14;
-  const chartBottom = 36;
-  const chartHeight = height - chartTop - chartBottom;
-  const max = Math.max(...values, 1);
-
-  const points = values.map((value, index) => ({
-    x: values.length === 1 ? width / 2 : (index / (values.length - 1)) * width,
-    y: chartTop + chartHeight - (value / max) * chartHeight,
-  }));
-
-  const linePoints = points.map((point) => `${point.x},${point.y}`).join(" ");
-  const areaPoints = [
-    `0,${chartTop + chartHeight}`,
-    ...points.map((point) => `${point.x},${point.y}`),
-    `${width},${chartTop + chartHeight}`,
-  ].join(" ");
-
-  return (
-    <svg
-      className={`dashboard-chart dashboard-chart-${tone}`}
-      viewBox={`0 0 ${width} ${height}`}
-    >
-      {[0, 1, 2, 3].map((line) => {
-        const y = chartTop + (chartHeight / 3) * line;
-        return (
-          <line
-            key={line}
-            className="dashboard-chart-grid-line"
-            x1="0"
-            x2={width}
-            y1={y}
-            y2={y}
-          />
-        );
-      })}
-      <polygon className="dashboard-chart-area" points={areaPoints} />
-      <polyline className="dashboard-chart-line" points={linePoints} />
-      {points.map((point, index) => (
-        <circle
-          key={index}
-          className="dashboard-chart-point"
-          cx={point.x}
-          cy={point.y}
-          r="4"
-        />
-      ))}
-      {labels.map((label, index) => {
-        const show =
-          index === 0 || index === labels.length - 1 || index % 5 === 0;
-        if (!show) return null;
-        return (
-          <text
-            key={`${label}-label`}
-            className="dashboard-chart-label"
-            x={points[index].x}
-            y={height - 8}
-            textAnchor="middle"
-          >
-            {label}
-          </text>
-        );
-      })}
-    </svg>
-  );
-}
-
-function DonutChart({ items, total }) {
-  let start = 0;
-  const stops = items.slice(0, 6).map((item, index) => {
-    const portion = total > 0 ? (item.amount / total) * 100 : 0;
-    const stop = `${COLORS[index % COLORS.length]} ${start}% ${start + portion}%`;
-    start += portion;
-    return stop;
-  });
-
-  return (
-    <div
-      className="dashboard-donut"
-      style={{
-        background: stops.length
-          ? `conic-gradient(${stops.join(", ")})`
-          : "conic-gradient(#e5e7eb 0 100%)",
-      }}
-    >
+    <div className="dashboard-panel-heading">
       <div>
-        <strong>{formatCurrency(total)}</strong>
-        <span>Total Sales</span>
+        <p>{eyebrow}</p>
+        <h2>{title}</h2>
       </div>
+      <span>{meta}</span>
     </div>
+  );
+}
+
+function TrendCard({ label, trend }) {
+  const direction = trend?.direction ?? "FLAT";
+
+  return (
+    <div className="dashboard-trend-card">
+      <div>
+        <span>{label}</span>
+        <strong>{formatNumber(trend?.currentValue ?? 0)}</strong>
+      </div>
+
+      <div
+        className={`dashboard-trend-badge dashboard-trend-${direction.toLowerCase()}`}
+      >
+        {direction === "UP" ? "↑" : direction === "DOWN" ? "↓" : "—"}
+        {Math.abs(Number(trend?.percentage ?? 0)).toFixed(1)}%
+      </div>
+
+      <p>Previous period: {formatNumber(trend?.previousValue ?? 0)}</p>
+    </div>
+  );
+}
+
+function StockAlertList({ lowStock, outOfStock }) {
+  const items = [
+    ...outOfStock.map((item) => ({
+      ...item,
+      label: "Out of stock",
+      tone: "danger",
+    })),
+    ...lowStock.map((item) => ({
+      ...item,
+      label: "Low stock",
+      tone: "warning",
+    })),
+  ].slice(0, 8);
+
+  if (items.length === 0) {
+    return <EmptyState text="No products currently need reorder attention." />;
+  }
+
+  return (
+    <div className="dashboard-list">
+      {items.map((item) => (
+        <div className="dashboard-list-row" key={item.id}>
+          <div>
+            <strong>{item.productName}</strong>
+            <span>{item.sku || "No SKU"}</span>
+          </div>
+          <div className="dashboard-list-metrics">
+            <span>
+              {formatNumber(item.quantity)} / {formatNumber(item.reorderLevel)}
+            </span>
+            <small className={`dashboard-status-${item.tone}`}>
+              {item.label}
+            </small>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function CategoryValueList({ items, total }) {
+  if (items.length === 0) {
+    return <EmptyState text="Category valuation will appear here." />;
+  }
+
+  return (
+    <div className="dashboard-value-list">
+      {items.map((item) => {
+        const percentage = total > 0 ? (item.inventoryValue / total) * 100 : 0;
+
+        return (
+          <div className="dashboard-value-row" key={item.category}>
+            <div>
+              <strong>{item.category}</strong>
+              <span>{formatNumber(item.productCount)} products</span>
+            </div>
+            <div>
+              <strong>{formatCurrency(item.inventoryValue)}</strong>
+              <span>{percentage.toFixed(1)}%</span>
+            </div>
+            <div className="dashboard-value-track">
+              <span style={{ width: `${Math.min(percentage, 100)}%` }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MostIssuedList({ items }) {
+  if (!items?.length) {
+    return <EmptyState text="Issued-product activity will appear here." />;
+  }
+
+  return (
+    <div className="dashboard-list">
+      {items.map((item, index) => (
+        <div className="dashboard-list-row" key={item.productId}>
+          <div className="dashboard-rank">{index + 1}</div>
+          <div>
+            <strong>{item.productName}</strong>
+            <span>{item.sku || "No SKU"}</span>
+          </div>
+          <div className="dashboard-list-metrics">
+            <span>{formatNumber(item.quantityIssued)} issued</span>
+            <small>{formatNumber(item.transactionCount)} records</small>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RecentMovementTable({ items }) {
+  if (!items?.length) {
+    return <EmptyState text="Posted stock movements will appear here." />;
+  }
+
+  return (
+    <div className="dashboard-table-wrapper">
+      <table className="dashboard-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Reference</th>
+            <th>Type</th>
+            <th>Quantity</th>
+            <th>User</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((item) => (
+            <tr key={item.id}>
+              <td>
+                <strong>{item.productName}</strong>
+                <span>{item.sku || "No SKU"}</span>
+              </td>
+              <td>{item.referenceNumber || "—"}</td>
+              <td>
+                <span
+                  className={`dashboard-movement-badge dashboard-movement-${item.direction.toLowerCase()}`}
+                >
+                  {formatTransactionType(item.transactionType)}
+                </span>
+              </td>
+              <td>
+                {item.quantityChanged > 0 ? "+" : ""}
+                {formatNumber(item.quantityChanged)}
+              </td>
+              <td>{item.performedByName}</td>
+              <td>{formatDateTime(item.transactionDate)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MovementChart({ labels, stockIn, stockOut }) {
+  const width = 900;
+  const height = 280;
+  const padding = {
+    top: 18,
+    right: 12,
+    bottom: 42,
+    left: 12,
+  };
+
+  const chartWidth = width - padding.left - padding.right;
+  const chartHeight = height - padding.top - padding.bottom;
+  const maximum = Math.max(...stockIn, ...stockOut, 1);
+  const groupWidth = chartWidth / Math.max(labels.length, 1);
+  const barWidth = Math.max(Math.min(groupWidth * 0.28, 10), 2);
+
+  return (
+    <svg
+      className="dashboard-movement-chart"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="Stock In and Stock Out movement chart"
+    >
+      {[0, 1, 2, 3, 4].map((line) => {
+        const y = padding.top + (chartHeight / 4) * line;
+
+        return (
+          <line
+            key={line}
+            className="dashboard-chart-grid"
+            x1={padding.left}
+            x2={width - padding.right}
+            y1={y}
+            y2={y}
+          />
+        );
+      })}
+
+      {labels.map((label, index) => {
+        const groupX = padding.left + groupWidth * index + groupWidth / 2;
+        const inHeight = (Number(stockIn[index] ?? 0) / maximum) * chartHeight;
+        const outHeight =
+          (Number(stockOut[index] ?? 0) / maximum) * chartHeight;
+
+        return (
+          <g key={`${label}-${index}`}>
+            <rect
+              className="dashboard-bar-in"
+              x={groupX - barWidth - 1}
+              y={padding.top + chartHeight - inHeight}
+              width={barWidth}
+              height={Math.max(inHeight, 1)}
+              rx="2"
+            />
+            <rect
+              className="dashboard-bar-out"
+              x={groupX + 1}
+              y={padding.top + chartHeight - outHeight}
+              width={barWidth}
+              height={Math.max(outHeight, 1)}
+              rx="2"
+            />
+            {(labels.length <= 14 ||
+              index === 0 ||
+              index === labels.length - 1 ||
+              index % 5 === 0) && (
+              <text
+                className="dashboard-chart-label"
+                x={groupX}
+                y={height - 12}
+                textAnchor="middle"
+              >
+                {label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
   );
 }
 
 function EmptyState({ text }) {
   return (
-    <div className="dashboard-small-empty">
+    <div className="dashboard-empty">
       <span>—</span>
       <p>{text}</p>
     </div>
   );
 }
 
-function buildDashboardData(products, movements) {
-  const productMap = new Map(products.map((product) => [product.id, product]));
-
-  const normalized = movements.map((movement) => {
-    const product = productMap.get(movement.productId);
-    const quantity = Number(movement.quantity ?? 0);
-    const unitPrice = Number(
-      movement.unitPrice ?? movement.price ?? product?.price ?? 0,
-    );
-
-    return {
-      ...movement,
-      quantity,
-      amount: Number(
-        movement.totalAmount ?? movement.amount ?? quantity * unitPrice,
-      ),
-      category: movement.category ?? product?.category ?? "OTHERS",
-      productName: movement.productName ?? product?.name ?? "Unknown Product",
-      productSku: movement.productSku ?? product?.sku ?? "",
-      date: toDate(movement.createdAt),
-    };
-  });
-
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const yearStart = new Date(now.getFullYear(), 0, 1);
-
-  const dailySales = normalized.filter((item) => item.date >= todayStart);
-  const monthlySales = normalized.filter((item) => item.date >= monthStart);
-  const yearlySales = normalized.filter((item) => item.date >= yearStart);
-
-  const categoryMap = new Map();
-  yearlySales.forEach((item) =>
-    categoryMap.set(
-      item.category,
-      (categoryMap.get(item.category) ?? 0) + item.amount,
-    ),
-  );
-
-  return {
-    totalProducts: products.length,
-    totalStock: products.reduce(
-      (total, product) => total + Number(product.quantity ?? 0),
-      0,
-    ),
-    inventoryValue: products.reduce(
-      (total, product) =>
-        total + Number(product.quantity ?? 0) * Number(product.price ?? 0),
-      0,
-    ),
-    lowStockCount: products.filter(
-      (product) =>
-        Number(product.quantity ?? 0) > 0 &&
-        Number(product.quantity ?? 0) <= Number(product.reorderLevel ?? 0),
-    ).length,
-    outOfStockCount: products.filter(
-      (product) => Number(product.quantity ?? 0) === 0,
-    ).length,
-    dailyTotal: sumAmounts(dailySales),
-    monthlyTotal: sumAmounts(monthlySales),
-    yearlyTotal: sumAmounts(yearlySales),
-    daily: createDailySeries(dailySales, now),
-    monthly: createMonthlySeries(monthlySales, now),
-    yearly: createYearlySeries(yearlySales, now),
-    categorySales: [...categoryMap.entries()]
-      .map(([name, amount]) => ({ name, amount }))
-      .sort((a, b) => b.amount - a.amount),
-    recent: normalized.filter((item) => item.date.getTime() > 0).slice(0, 6),
-  };
-}
-
-function createDailySeries(items, now) {
-  const labels = [
-    "12 AM",
-    "3 AM",
-    "6 AM",
-    "9 AM",
-    "12 PM",
-    "3 PM",
-    "6 PM",
-    "9 PM",
-  ];
-  const values = Array(8).fill(0);
-  items.forEach((item) => {
-    if (sameDay(item.date, now))
-      values[Math.min(Math.floor(item.date.getHours() / 3), 7)] += item.amount;
-  });
-  return { labels, values };
-}
-
-function createMonthlySeries(items, now) {
-  const days = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const labels = Array.from({ length: days }, (_, index) => String(index + 1));
-  const values = Array(days).fill(0);
-  items.forEach((item) => {
-    if (
-      item.date.getFullYear() === now.getFullYear() &&
-      item.date.getMonth() === now.getMonth()
-    ) {
-      values[item.date.getDate() - 1] += item.amount;
-    }
-  });
-  return { labels, values };
-}
-
-function createYearlySeries(items, now) {
-  const labels = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-  ];
-  const values = Array(12).fill(0);
-  items.forEach((item) => {
-    if (item.date.getFullYear() === now.getFullYear())
-      values[item.date.getMonth()] += item.amount;
-  });
-  return { labels, values };
-}
-
-function sumAmounts(items) {
-  return items.reduce((total, item) => total + Number(item.amount ?? 0), 0);
-}
-
-function sameDay(first, second) {
-  return (
-    first.getFullYear() === second.getFullYear() &&
-    first.getMonth() === second.getMonth() &&
-    first.getDate() === second.getDate()
-  );
-}
-
-function toDate(value) {
-  if (!value) return new Date(0);
-  if (typeof value.toDate === "function") return value.toDate();
-  if (typeof value.seconds === "number") return new Date(value.seconds * 1000);
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? new Date(0) : date;
+function formatNumber(value) {
+  return new Intl.NumberFormat("en-PH", {
+    maximumFractionDigits: 2,
+  }).format(Number(value ?? 0));
 }
 
 function formatCurrency(value) {
@@ -625,14 +575,25 @@ function formatCurrency(value) {
   }).format(Number(value ?? 0));
 }
 
-function formatTime(value) {
-  const date = toDate(value);
-  return date.getTime() === 0
-    ? "No date"
-    : new Intl.DateTimeFormat("en-PH", {
-        hour: "numeric",
-        minute: "2-digit",
-      }).format(date);
+function formatDateTime(value) {
+  if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
+    return "No date";
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(value);
+}
+
+function formatTransactionType(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .split("_")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function Icon({ children }) {
@@ -651,6 +612,7 @@ function CubeIcon() {
     </Icon>
   );
 }
+
 function DatabaseIcon() {
   return (
     <Icon>
@@ -660,6 +622,7 @@ function DatabaseIcon() {
     </Icon>
   );
 }
+
 function WarningIcon() {
   return (
     <Icon>
@@ -668,6 +631,7 @@ function WarningIcon() {
     </Icon>
   );
 }
+
 function OutIcon() {
   return (
     <Icon>
@@ -676,6 +640,7 @@ function OutIcon() {
     </Icon>
   );
 }
+
 function MoneyIcon() {
   return (
     <Icon>
@@ -684,6 +649,7 @@ function MoneyIcon() {
     </Icon>
   );
 }
+
 function CalendarIcon() {
   return (
     <Icon>

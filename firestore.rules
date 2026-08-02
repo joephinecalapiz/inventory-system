@@ -262,6 +262,34 @@ function isValidProductWholeNumber(value) {
     && value <= 999999999;
 }
 
+/*
+ * Normalized product stock status used by reports and dashboard queries.
+ */
+function hasValidProductStockStatus(data) {
+  return data.stockStatus in [
+      "IN_STOCK",
+      "LOW_STOCK",
+      "OUT_OF_STOCK"
+    ]
+    && (
+      (
+        data.quantity == 0
+        && data.stockStatus == "OUT_OF_STOCK"
+      )
+      ||
+      (
+        data.quantity > 0
+        && data.quantity <= data.reorderLevel
+        && data.stockStatus == "LOW_STOCK"
+      )
+      ||
+      (
+        data.quantity > data.reorderLevel
+        && data.stockStatus == "IN_STOCK"
+      )
+    );
+}
+
 function isValidOptionalProductSource(data) {
   return !data.keys().hasAny([
       "sourceProductId"
@@ -352,6 +380,7 @@ function isValidNewProduct(data, productId) {
       "price",
       "quantity",
       "reorderLevel",
+      "stockStatus",
       "barcode",
       "barcodeSequence",
       "hasStockHistory",
@@ -380,6 +409,7 @@ function isValidNewProduct(data, productId) {
       "price",
       "quantity",
       "reorderLevel",
+      "stockStatus",
       "barcode",
       "barcodeSequence",
       "hasStockHistory",
@@ -431,6 +461,7 @@ function isValidNewProduct(data, productId) {
     && data.price == data.sellingPrice
     && isValidProductWholeNumber(data.quantity)
     && isValidProductWholeNumber(data.reorderLevel)
+    && hasValidProductStockStatus(data)
     && data.barcode is string
     && data.barcode.matches(
       "^[0-9]{12}$"
@@ -466,6 +497,7 @@ function isValidProductMasterUpdate() {
         "sellingPrice",
         "price",
         "reorderLevel",
+        "stockStatus",
         "status",
         "updatedBy",
         "updatedAt"
@@ -488,6 +520,9 @@ function isValidProductMasterUpdate() {
     )
     && isValidProductStatusValue(
       request.resource.data.status
+    )
+    && hasValidProductStockStatus(
+      request.resource.data
     )
     && request.resource.data.updatedBy
       == request.auth.uid
@@ -676,6 +711,7 @@ function hasValidProductStockAuditUpdate() {
       .affectedKeys()
       .hasOnly([
         "quantity",
+        "stockStatus",
         "costPrice",
         "hasStockHistory",
         "stockMovementCount",
@@ -730,7 +766,10 @@ function hasValidProductStockAuditUpdate() {
     && request.resource.data.updatedBy
       == request.auth.uid
     && request.resource.data.updatedAt
-      == request.time;
+      == request.time
+    && hasValidProductStockStatus(
+      request.resource.data
+    );
 }
 
 function isValidProductStockIncreaseBase() {
@@ -2238,6 +2277,7 @@ function isValidManualStockOutProductUpdate(
       .affectedKeys()
       .hasOnly([
         "quantity",
+        "stockStatus",
         "hasStockHistory",
         "stockMovementCount",
         "lastStockMovementId",
@@ -2300,6 +2340,9 @@ function isValidManualStockOutProductUpdate(
       == request.auth.uid
     && request.resource.data.updatedAt
       == request.time
+    && hasValidProductStockStatus(
+      request.resource.data
+    )
     && stockOutProductMatchesMovementAndOperation(
       productId
     );
@@ -6699,6 +6742,156 @@ match /goodsReceiptReferenceReservations/{reservationId} {
 
   allow update, delete: if false;
 }
+
+    /*
+     * REPORTING INVENTORY TRANSACTIONS
+     *
+     * These documents are created together with posted stock changes and
+     * become immutable ledger records. Validation is intentionally local to
+     * keep multi-document inventory writes below the Rules expression limit.
+     */
+    match /inventoryTransactions/{transactionId} {
+      allow get, list: if hasRole([
+        "SUPERADMIN",
+        "ADMIN",
+        "INVENTORY_STAFF",
+        "AUDITOR"
+      ]);
+
+      allow create: if hasRole([
+          "SUPERADMIN",
+          "ADMIN",
+          "INVENTORY_STAFF"
+        ])
+        && request.resource.data.keys().hasOnly([
+          "schemaVersion",
+          "referenceNumber",
+          "transactionType",
+          "productId",
+          "sourceProductId",
+          "productName",
+          "sku",
+          "barcode",
+          "category",
+          "categoryCode",
+          "unitCode",
+          "unitName",
+          "unitAbbreviation",
+          "quantityBefore",
+          "quantityChanged",
+          "quantityAfter",
+          "quantityIn",
+          "quantityOut",
+          "unitCost",
+          "totalCost",
+          "supplierId",
+          "supplierName",
+          "relatedDocumentId",
+          "relatedDocumentType",
+          "reason",
+          "remarks",
+          "performedBy",
+          "performedByName",
+          "performedByEmail",
+          "performedByRole",
+          "approvedBy",
+          "approvedByName",
+          "approvedByRole",
+          "transactionDate",
+          "createdAt",
+          "updatedAt",
+          "metadata"
+        ])
+        && request.resource.data.keys().hasAll([
+          "schemaVersion",
+          "referenceNumber",
+          "transactionType",
+          "productId",
+          "productName",
+          "sku",
+          "quantityBefore",
+          "quantityChanged",
+          "quantityAfter",
+          "quantityIn",
+          "quantityOut",
+          "performedBy",
+          "performedByName",
+          "performedByRole",
+          "transactionDate",
+          "createdAt"
+        ])
+        && request.resource.data.schemaVersion == 1
+        && request.resource.data.referenceNumber is string
+        && request.resource.data.referenceNumber.size() >= 1
+        && request.resource.data.referenceNumber.size() <= 128
+        && request.resource.data.transactionType in [
+          "OPENING_STOCK",
+          "STOCK_IN",
+          "STOCK_OUT",
+          "GOODS_RECEIPT",
+          "ADJUSTMENT_INCREASE",
+          "ADJUSTMENT_DECREASE",
+          "RETURN_IN",
+          "RETURN_OUT",
+          "VOID"
+        ]
+        && request.resource.data.productId is string
+        && request.resource.data.productId.size() >= 1
+        && request.resource.data.productId.size() <= 128
+        && request.resource.data.productName is string
+        && request.resource.data.productName.size() >= 1
+        && request.resource.data.productName.size() <= 150
+        && request.resource.data.sku is string
+        && request.resource.data.sku.size() >= 1
+        && request.resource.data.sku.size() <= 50
+        && request.resource.data.quantityBefore is number
+        && request.resource.data.quantityBefore >= 0
+        && request.resource.data.quantityChanged is number
+        && request.resource.data.quantityAfter is number
+        && request.resource.data.quantityAfter >= 0
+        && request.resource.data.quantityAfter
+          == request.resource.data.quantityBefore
+            + request.resource.data.quantityChanged
+        && request.resource.data.quantityIn is number
+        && request.resource.data.quantityIn >= 0
+        && request.resource.data.quantityOut is number
+        && request.resource.data.quantityOut >= 0
+        && (
+          (
+            request.resource.data.quantityChanged > 0
+            && request.resource.data.quantityIn
+              == request.resource.data.quantityChanged
+            && request.resource.data.quantityOut == 0
+          )
+          ||
+          (
+            request.resource.data.quantityChanged < 0
+            && request.resource.data.quantityIn == 0
+            && request.resource.data.quantityOut
+              == 0 - request.resource.data.quantityChanged
+          )
+          ||
+          (
+            request.resource.data.quantityChanged == 0
+            && request.resource.data.quantityIn == 0
+            && request.resource.data.quantityOut == 0
+          )
+        )
+        && request.resource.data.performedBy == request.auth.uid
+        && request.resource.data.performedByName is string
+        && request.resource.data.performedByName.size() >= 1
+        && request.resource.data.performedByName.size() <= 150
+        && request.resource.data.performedByRole
+          == currentUserProfile().role
+        && request.resource.data.transactionDate is timestamp
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.get(
+          "updatedAt",
+          request.time
+        ) == request.time;
+
+      allow update, delete: if false;
+    }
 
     /*
      * DENY EVERY COLLECTION NOT EXPLICITLY LISTED ABOVE.

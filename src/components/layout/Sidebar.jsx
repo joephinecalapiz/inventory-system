@@ -130,6 +130,18 @@ const NAVIGATION_ITEMS = [
   },
 
   {
+    label: "Reorder Management",
+    path: "/reorder-management",
+    icon: InventoryIcon,
+    allowedRoles: [
+      USER_ROLES.SUPERADMIN,
+      USER_ROLES.ADMIN,
+      USER_ROLES.INVENTORY_STAFF,
+      USER_ROLES.AUDITOR,
+    ],
+  },
+
+  {
     label: "Goods Receiving",
     path: "/goods-receiving",
     icon: GoodsReceivingIcon,

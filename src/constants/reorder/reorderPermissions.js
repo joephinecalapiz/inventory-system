@@ -1,0 +1,44 @@
+import { USER_ROLES } from "../roles.js";
+
+export const REORDER_ACTIONS = Object.freeze({
+  VIEW: "VIEW",
+  ASSIGN_SUPPLIER: "ASSIGN_SUPPLIER",
+  UPDATE_REORDER_LEVEL: "UPDATE_REORDER_LEVEL",
+  CREATE_PURCHASE_ORDER: "CREATE_PURCHASE_ORDER",
+  CANCEL_REORDER: "CANCEL_REORDER",
+  EXPORT: "EXPORT",
+});
+
+const VIEW_ROLES = Object.freeze([
+  USER_ROLES.SUPERADMIN,
+  USER_ROLES.ADMIN,
+  USER_ROLES.INVENTORY_STAFF,
+  USER_ROLES.AUDITOR,
+]);
+
+const MANAGE_ROLES = Object.freeze([
+  USER_ROLES.SUPERADMIN,
+  USER_ROLES.ADMIN,
+  USER_ROLES.INVENTORY_STAFF,
+]);
+
+const ADMIN_ROLES = Object.freeze([USER_ROLES.SUPERADMIN, USER_ROLES.ADMIN]);
+
+export const REORDER_PERMISSIONS = Object.freeze({
+  [REORDER_ACTIONS.VIEW]: VIEW_ROLES,
+  [REORDER_ACTIONS.ASSIGN_SUPPLIER]: MANAGE_ROLES,
+  [REORDER_ACTIONS.UPDATE_REORDER_LEVEL]: ADMIN_ROLES,
+  [REORDER_ACTIONS.CREATE_PURCHASE_ORDER]: MANAGE_ROLES,
+  [REORDER_ACTIONS.CANCEL_REORDER]: ADMIN_ROLES,
+  [REORDER_ACTIONS.EXPORT]: VIEW_ROLES,
+});
+
+export function canPerformReorderAction(role, action) {
+  return REORDER_PERMISSIONS[action]?.includes(role) ?? false;
+}
+
+export function getAllowedReorderActions(role) {
+  return Object.values(REORDER_ACTIONS).filter((action) =>
+    canPerformReorderAction(role, action),
+  );
+}

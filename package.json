@@ -12,6 +12,8 @@
     "test:phase7b4:static": "node --test tests/static/phase7b4.stock-alert-widgets.test.mjs",
     "test:phase7b5:static": "node --test tests/static/phase7b5.inventory-valuation.test.mjs",
     "test:phase7b6:static": "node --test tests/static/phase7b6.dashboard-trends.test.mjs",
+    "test:phase7c1:static": "node --test tests/static/phase7c1.reorder-constants.test.mjs",
+    "test:phase7c2:static": "node --test tests/static/phase7c2.reorder-recommendation.test.mjs",
     "lint": "oxlint src",
     "build": "vite build",
     "dev": "vite",
